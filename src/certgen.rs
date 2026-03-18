@@ -59,9 +59,11 @@ pub struct GeneratedCert {
     pub key_pair: KeyPair,
     /// The rcgen Certificate (for signing children)
     pub certificate: rcgen::Certificate,
-    /// Whether this is a CA certificate
+    /// Whether this is a CA certificate (used by ceremony pipeline)
+    #[allow(dead_code)]
     pub is_ca: bool,
-    /// Algorithm identifier
+    /// Algorithm identifier (used by ceremony pipeline for manifest output)
+    #[allow(dead_code)]
     pub algorithm: String,
 }
 
@@ -135,6 +137,8 @@ pub fn generate_signed_cert(
 ///
 /// `issuer` is the CA that signs the CRL. `revoked_serials` are the
 /// DER-encoded serial numbers of certificates to revoke.
+/// Used by the ceremony pipeline for programmatic revocation.
+#[allow(dead_code)]
 pub fn generate_crl_from_serials(
     issuer: &GeneratedCert,
     revoked_serials: &[Vec<u8>],
@@ -168,6 +172,8 @@ pub fn generate_crl_from_serials(
 }
 
 /// Build a chain PEM from a certificate and its ordered parents (immediate parent first, root last).
+/// Used by the ceremony pipeline for custom chain assembly.
+#[allow(dead_code)]
 pub fn build_chain(cert: &GeneratedCert, parents: &[&GeneratedCert]) -> String {
     let mut chain = cert.cert_pem.clone();
     for parent in parents {

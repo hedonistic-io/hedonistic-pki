@@ -43,9 +43,14 @@ impl rand_core::TryCryptoRng for OsRng {}
 
 // Type aliases for clarity
 type DsaSigningKey = SigningKey<MlDsa87>;
+// Used by verify_signature (public API for downstream verifiers)
+#[allow(dead_code)]
 type DsaVerifyingKey = VerifyingKey<MlDsa87>;
+#[allow(dead_code)]
 type DsaSignature = Signature<MlDsa87>;
 type KemDecapsKey = DecapsulationKey<MlKem1024>;
+// Used by pq_encrypt (public API for downstream encryptors)
+#[allow(dead_code)]
 type KemEncapsKey = EncapsulationKey<MlKem1024>;
 
 /// A PQ signing key pair (ML-DSA-87)
@@ -63,6 +68,8 @@ pub struct PqEncryptionKeyPair {
 /// A PQ signature over some data
 pub struct PqSignature {
     pub signature_bytes: Vec<u8>,
+    /// SHA-512 hash of the signed data (used by verifiers for integrity checks)
+    #[allow(dead_code)]
     pub data_hash: [u8; 64],
 }
 
@@ -172,6 +179,8 @@ pub fn sign_data(
 }
 
 /// Verify a PQ signature
+/// Public API for downstream verifiers (Partitura, release tooling)
+#[allow(dead_code)]
 pub fn verify_signature(
     data: &[u8],
     sig: &PqSignature,
@@ -193,6 +202,8 @@ pub fn verify_signature(
 /// Encrypt data using ML-KEM-1024 + AES-256-GCM hybrid
 ///
 /// Output format: KEM_CIPHERTEXT || NONCE (12 bytes) || AES_CIPHERTEXT
+/// Public API for downstream encryptors (artifact protection)
+#[allow(dead_code)]
 pub fn pq_encrypt(
     data: &[u8],
     encapsulation_key_bytes: &[u8],
@@ -237,6 +248,8 @@ pub fn pq_encrypt(
 }
 
 /// Decrypt data using ML-KEM-1024 + AES-256-GCM hybrid
+/// Public API for downstream decryptors (artifact protection)
+#[allow(dead_code)]
 pub fn pq_decrypt(
     encrypted: &[u8],
     decapsulation_key_encrypted: &EncryptedBlob,

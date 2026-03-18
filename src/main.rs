@@ -210,40 +210,20 @@ fn cmd_ceremony(
         bail!("Config file not found: {config_path}");
     }
 
-    // Detect format from extension
-    let ext = config_file
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    match ext {
-        "yaml" | "yml" => eprintln!("  Format: YAML"),
-        "json" => eprintln!("  Format: JSON"),
-        _ => eprintln!("  Format: unknown (will attempt YAML, then JSON)"),
-    }
-
-    if let Some(ref output) = output_override {
-        eprintln!("  Output directory override: {output}");
-    }
-
     if dry_run {
-        eprintln!();
-        eprintln!("=== DRY RUN ===");
-        eprintln!("Config validated. Planned hierarchy:");
-        eprintln!();
-        eprintln!("  (config parsing not yet wired — will display hierarchy tree here)");
-        eprintln!();
-        eprintln!("Passphrase groups:");
-        eprintln!("  (config parsing not yet wired — will display passphrase groups here)");
-        eprintln!();
-        eprintln!("No keys generated. Remove --dry-run to execute the ceremony.");
+        ceremony::dry_run_ceremony(&config_path, output_override.as_deref())?;
         return Ok(());
     }
 
-    eprintln!();
-    eprintln!("Running ceremony...");
-    eprintln!("  (ceremony execution not yet wired — will invoke ceremony::run() here)");
-    eprintln!();
-    eprintln!("Ceremony command is a placeholder. Implementation will be wired from ceremony.rs.");
+    let result = ceremony::run_ceremony(&config_path, output_override.as_deref())?;
+    eprintln!("\nCeremony generated {} certificates.", result.cert_count);
+    if !result.ed25519_cert_names.is_empty() {
+        eprintln!(
+            "Ed25519 parallel keys: {}",
+            result.ed25519_cert_names.join(", ")
+        );
+    }
+    eprintln!("Output: {}", result.output_dir.display());
 
     Ok(())
 }

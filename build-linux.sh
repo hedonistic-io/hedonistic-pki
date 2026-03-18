@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# build-linux.sh — Cross-compile hedonistic-keygen for Linux x86_64
+# build-linux.sh — Cross-compile hedonistic-pki for Linux x86_64
 #
 # Options:
 #   1. Docker (if available) — builds inside Alpine container, fully static musl binary
 #   2. cargo-zigbuild (if zig installed) — uses Zig as linker
 #   3. Native (if on Linux already) — just cargo build
 #
-# Output: target/x86_64-unknown-linux-musl/release/hedonistic-keygen
+# Output: target/x86_64-unknown-linux-musl/release/hedonistic-pki
 #
 set -euo pipefail
 
@@ -15,9 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 TARGET="x86_64-unknown-linux-musl"
-BINARY="target/${TARGET}/release/hedonistic-keygen"
+BINARY="target/${TARGET}/release/hedonistic-pki"
 
-echo "=== Building hedonistic-keygen for Linux x86_64 ==="
+echo "=== Building hedonistic-pki for Linux x86_64 ==="
 
 # Option 1: Docker
 if command -v docker &>/dev/null; then
@@ -40,7 +40,7 @@ if command -v docker &>/dev/null; then
         file "$BINARY"
         echo ""
         echo "This is a fully static binary. Copy it to a USB drive:"
-        echo "  cp $BINARY /Volumes/YOUR_USB/hedonistic-keygen"
+        echo "  cp $BINARY /Volumes/YOUR_USB/hedonistic-pki"
         exit 0
     fi
 fi
@@ -87,12 +87,12 @@ echo "     cargo install cargo-zigbuild"
 echo "     Then re-run this script"
 echo ""
 echo "  C) Build on the airgapped Linux machine itself:"
-echo "     1. Copy this entire keygen/ directory to a USB"
+echo "     1. Copy this entire hedonistic-pki/ directory to a USB"
 echo "     2. On the Linux machine:"
 echo "        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-echo "        cd /path/to/keygen"
+echo "        cd /path/to/hedonistic-pki"
 echo "        cargo build --release"
-echo "        # Binary at: target/release/hedonistic-keygen"
+echo "        # Binary at: target/release/hedonistic-pki"
 echo ""
 echo "  D) Use a CI/CD pipeline to build the Linux binary"
 echo ""

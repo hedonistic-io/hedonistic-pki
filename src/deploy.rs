@@ -777,9 +777,13 @@ mod tests {
     // ── Test helper ──
 
     fn tempdir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "hedonistic-pki-test-deploy-{}",
-            std::process::id()
+            "hedonistic-pki-test-deploy-{}-{}",
+            std::process::id(),
+            id,
         ));
         // Clean up from previous runs
         let _ = fs::remove_dir_all(&dir);

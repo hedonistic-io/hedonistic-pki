@@ -16,7 +16,7 @@ use std::process::Command;
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let src_dir = manifest_dir.join("src");
+    let _src_dir = manifest_dir.join("src");
 
     // Look for code signing cert in the PKI directory (parent of keygen/)
     let pki_dir = manifest_dir.parent().unwrap_or(&manifest_dir);
