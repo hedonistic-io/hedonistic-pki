@@ -1,0 +1,64 @@
+# Quickstart: Minimal 3-tier PKI hierarchy
+# Run: hedonistic-pki ceremony --config examples/quickstart.yaml --dry-run
+#
+# This generates:
+#   - Root CA (RSA-4096, 20-year, offline)
+#   - Intermediate CA (RSA-4096, 10-year)
+#   - Code Signing leaf (RSA-4096, 2-year)
+#   - Server TLS leaf (Ed25519, 1-year, no passphrase)
+
+name: acme-pki
+organization: "Acme Corp"
+
+passphrases:
+  min_length: 16
+
+hierarchy:
+  - name: root-ca
+    cn: "Acme Corp Root CA"
+    cert_type: root
+    algorithm: rsa_4096
+    validity:
+      years: 20
+    offline: true
+    subject:
+      country: US
+      organization: "Acme Corp"
+      organizational_unit: "Certificate Authority"
+
+  - name: intermediate-ca
+    cn: "Acme Corp Intermediate CA"
+    cert_type: intermediate
+    parent: root-ca
+    algorithm: rsa_4096
+    validity:
+      years: 10
+    pathlen: 0
+    subject:
+      country: US
+      organization: "Acme Corp"
+
+  - name: code-signing
+    cn: "Acme Corp Code Signing"
+    cert_type: leaf
+    parent: intermediate-ca
+    algorithm: rsa_4096
+    validity:
+      years: 2
+    extensions:
+      extended_key_usage: [codeSigning]
+    subject:
+      organizational_unit: Engineering
+
+  - name: server-tls
+    cn: "Acme Corp Server TLS"
+    cert_type: leaf
+    parent: intermediate-ca
+    algorithm: ed25519
+    validity:
+      years: 1
+    no_passphrase: true
+    extensions:
+      extended_key_usage: [serverAuth, clientAuth]
+    subject:
+      organizational_unit: Infrastructure

@@ -37,13 +37,13 @@ hedonistic-pki verify
 
 ```bash
 cargo build           # debug build
-cargo test            # 91 tests
+cargo test            # 93 tests
 cargo build --release # optimized binary (~2MB)
 ```
 
 ## Integration Status
 
-The ceremony orchestrator wires config → certgen → paper → deploy. The bridge from ceremony.rs to certgen.rs currently generates self-signed certs for children (chain building is manual). Full parent-signed cert generation requires storing rcgen Certificate/KeyPair state across the ceremony — tracked as the primary integration TODO.
+The ceremony orchestrator fully wires config → certgen → ed25519 → paper → deploy. Parent-signed cert generation works via `generate_signed_cert()` — the rcgen `Certificate`/`KeyPair` state is stored across the ceremony so each child is signed by its actual parent CA. The full chain from config parsing through deployment archive generation is operational.
 
 ## Destination
 

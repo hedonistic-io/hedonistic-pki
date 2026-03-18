@@ -6,8 +6,8 @@ A single static binary that generates your entire PKI hierarchy from a YAML conf
 No OpenSSL runtime required. No system dependencies. Download it, write your config,
 run the ceremony on an airgapped machine, and walk away with encrypted keys, signed
 certificates, paper backups, and deployment-ready archives. Supports classical RSA-4096
-X.509 chains alongside post-quantum ML-DSA-87 and ML-KEM-1024 (NIST FIPS 203/204,
-security level 5) in a hybrid dual-signature model.
+and Ed25519 alongside post-quantum ML-DSA-87 and ML-KEM-1024 (NIST FIPS 203/204,
+security level 5) via per-cert algorithm selection.
 
 Built by [Hedonistic IO](https://hedonistic.io) for internal use and released as open
 source because PKI tooling should not require a week of OpenSSL incantations.
@@ -15,16 +15,17 @@ source because PKI tooling should not require a week of OpenSSL incantations.
 ## Features
 
 - **Config-driven**: Describe your entire PKI hierarchy in YAML or JSON -- every CA,
-  intermediate, signer, and leaf -- and the tool builds exactly what you specified.
+  intermediate, and leaf -- as a flat list with parent references. The tool topologically
+  sorts the hierarchy and builds certificates in the correct order.
 - **Zero system dependencies**: Single static binary. No OpenSSL, no GnuTLS, no
   shared libraries. Copy it to a USB stick and run it anywhere.
 - **Airgap-safe**: Runs fully offline. No network calls, no telemetry, no update
   checks. Designed for ceremony machines that never touch a network.
 - **Post-quantum ready**: ML-DSA-87 digital signatures and ML-KEM-1024 key
-  encapsulation (NIST FIPS 203/204, security level 5) generated alongside classical
-  RSA-4096 keys. Both must verify -- hybrid model, not either/or.
-- **Paper backups**: QR-code-based paper backup generation with multi-part splitting
-  for disaster recovery. Print it, laminate it, lock it in a safe.
+  encapsulation (NIST FIPS 203/204, security level 5). Select PQ algorithms per-cert
+  via the `algorithm` field, or generate parallel classical + PQ keys with `parallel_keys`.
+- **Paper backups**: Barcode-based paper backup generation (QR, Aztec, PDF417) with
+  multi-part splitting for disaster recovery. Print it, laminate it, lock it in a safe.
 - **Deployment packages**: Automated classification of ceremony outputs into
   deployment-ready tar.gz archives (offline keys, online keys, public trust bundle).
 - **Memory hardened**: All private keys encrypted in memory with ChaCha20-Poly1305
@@ -42,46 +43,54 @@ chmod +x hedonistic-pki-linux-amd64
 
 # 2. Write your ceremony config
 cat > ceremony.yaml << 'EOF'
+name: acme-pki
 organization: "Acme Corp"
-output_dir: "./pki-output"
+
+passphrases:
+  min_length: 16
 
 hierarchy:
-  - name: "Acme Root CA"
-    key_type: rsa4096
-    validity_years: 20
-    self_signed: true
-    children:
-      - name: "Acme Intermediate CA"
-        key_type: rsa4096
-        validity_years: 10
-        path_length: 0
-        children:
-          - name: "Acme Code Signing"
-            key_type: rsa4096
-            validity_years: 2
-            usage: [code_signing]
+  - name: root-ca
+    cn: "Acme Corp Root CA"
+    cert_type: root
+    algorithm: rsa_4096
+    validity:
+      years: 20
+    offline: true
+    subject:
+      country: US
+      organization: "Acme Corp"
+      organizational_unit: "Certificate Authority"
 
-post_quantum:
-  enabled: true
-  algorithm: ml-dsa-87
-  kem: ml-kem-1024
+  - name: intermediate-ca
+    cn: "Acme Corp Intermediate CA"
+    cert_type: intermediate
+    parent: root-ca
+    algorithm: rsa_4096
+    validity:
+      years: 10
+    pathlen: 0
+    subject:
+      country: US
+      organization: "Acme Corp"
 
-paper_backup:
-  enabled: true
-  qr_parts: 3  # Split across 3 QR sheets
-
-deploy:
-  enabled: true
-  packages:
-    - name: offline
-      include: ["root-ca/*.key", "intermediate-ca/*.key"]
-    - name: online
-      include: ["code-signing/*", "intermediate-ca/chain.crt"]
-    - name: trust-bundle
-      include: ["**/*.crt", "pq/*.vk"]
+  - name: code-signing
+    cn: "Acme Corp Code Signing"
+    cert_type: leaf
+    parent: intermediate-ca
+    algorithm: rsa_4096
+    validity:
+      years: 2
+    extensions:
+      extended_key_usage: [codeSigning]
+    subject:
+      organizational_unit: Engineering
 EOF
 
-# 3. Run the ceremony
+# 3. Run the ceremony (dry run first to validate)
+./hedonistic-pki-linux-amd64 ceremony --config ceremony.yaml --dry-run
+
+# 4. Run for real
 ./hedonistic-pki-linux-amd64 ceremony --config ceremony.yaml
 ```
 
@@ -107,7 +116,7 @@ chmod +x hedonistic-pki-*
 
 ### From Source
 
-Requires Rust 1.85+ (2024 edition):
+Requires Rust 1.93+ (2024 edition):
 
 ```bash
 git clone https://github.com/hedonistic-io/hedonistic-pki.git
@@ -139,17 +148,17 @@ hedonistic-pki ceremony --config ceremony.yaml --output /mnt/usb/pki
 # Dry run -- validate config and show the planned hierarchy
 hedonistic-pki ceremony --config ceremony.yaml --dry-run
 
-# Skip paper backup generation
-hedonistic-pki ceremony --config ceremony.yaml --no-paper-backup
+# Disable paper backup generation
+hedonistic-pki ceremony --config ceremony.yaml --paper-backup false
 
-# Skip deployment archive generation
-hedonistic-pki ceremony --config ceremony.yaml --no-deploy
+# Disable deployment archive generation
+hedonistic-pki ceremony --config ceremony.yaml --deploy false
 ```
 
-During the ceremony, you will be prompted interactively for passphrases. Each CA
-or signer that requires a passphrase (as declared in the config) will prompt twice
-for confirmation. Passphrases are encrypted in the memory vault immediately after
-input and never stored in plaintext.
+During the ceremony, you will be prompted interactively for passphrases. Certs
+sharing the same parent are automatically grouped so you only enter one passphrase
+per group. Certs with `no_passphrase: true` are skipped. Passphrases are encrypted
+in the memory vault immediately after input and never stored in plaintext.
 
 ### `hedonistic-pki generate`
 
@@ -219,7 +228,7 @@ hedonistic-pki verify
 ### `hedonistic-pki paper-backup`
 
 Generate a paper backup from an existing PKI directory. Produces an HTML document
-with QR codes encoding the private keys, suitable for printing and archival storage.
+with barcodes encoding the private keys, suitable for printing and archival storage.
 
 ```bash
 hedonistic-pki paper-backup --pki-dir /mnt/usb/pki
@@ -241,187 +250,130 @@ hedonistic-pki extract-source --output ./source --key /mnt/usb/pki/code-signing/
 
 The ceremony config file is YAML or JSON. Every field is documented below.
 
-### Top-Level Fields
+### Top-Level Fields (`CeremonyConfig`)
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | yes | -- | Internal name for this ceremony |
+| `organization` | string | yes | -- | Organization name embedded in certificate subjects |
+| `output_dir` | string | no | `null` | Base output directory (overridable via `--output` CLI flag) |
+| `passphrases` | object | no | see below | Passphrase policy settings |
+| `hierarchy` | array | yes | -- | Flat list of certificate specs (see CertSpec below) |
+| `paper_backup` | object | no | `null` | Paper backup settings (see below) |
+| `deployment` | object | no | `null` | Deployment archive settings (see below) |
+
+### Passphrase Config (`passphrases`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `min_length` | integer | `16` | Minimum passphrase length enforced during ceremony |
+| `manager_hint` | string | `null` | Hint displayed during passphrase prompts (e.g., "use 1Password") |
+
+### Certificate Spec (`CertSpec`) -- entries in `hierarchy`
+
+Each entry in the `hierarchy` array describes one certificate:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | yes | -- | Internal identifier, used as parent reference by children |
+| `cn` | string | yes | -- | Common Name for the X.509 subject |
+| `cert_type` | enum | yes | -- | One of: `root`, `intermediate`, `sub_ca`, `leaf` |
+| `parent` | string | no | `null` | `name` of the parent CA that signs this cert. Required for all non-root types. Root certs must not have a parent. |
+| `algorithm` | enum | no | `rsa_4096` | Key algorithm: `rsa_4096`, `ed25519`, `ml_dsa_87`, `ml_kem_1024` |
+| `hash` | enum | no | `null` | Hash algorithm: `sha256`, `sha384`, `sha512` |
+| `validity` | object | yes | -- | Must contain `years` (integer) and/or `days` (integer) |
+| `pathlen` | integer | no | `null` | X.509 path length constraint. Only valid on CA types, not leaves. |
+| `offline` | boolean | no | `false` | Mark this cert as offline (affects passphrase grouping and deployment classification) |
+| `no_passphrase` | boolean | no | `false` | Skip passphrase for this key (e.g., CI/CD service keys) |
+| `parallel_keys` | array | no | `[]` | Additional algorithms to generate alongside the primary. E.g., `[ed25519, ml_dsa_87]` generates those keys in parallel with the primary `algorithm`. |
+| `extensions` | object | no | `null` | X.509 extension overrides (see below) |
+| `subject` | object | no | `null` | Additional X.509 subject fields (see below) |
+| `tags` | array | no | `[]` | Arbitrary string tags for metadata |
+| `deploy_to` | string | no | `null` | Deployment target hint (e.g., `github-actions`) |
+
+### Extension Spec (`extensions`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `key_usage` | array | `[]` | X.509 Key Usage values (e.g., `[keyCertSign, cRLSign]`) |
+| `extended_key_usage` | array | `[]` | Extended Key Usage values (e.g., `[codeSigning, serverAuth, clientAuth]`) |
+| `basic_constraints_ca` | boolean | `null` | Explicit CA flag override |
+
+### Subject Spec (`subject`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `country` | string | `null` | Two-letter country code |
+| `organization` | string | `null` | Organization name (overrides top-level `organization` for this cert) |
+| `organizational_unit` | string | `null` | Organizational unit |
+
+### Paper Backup Config (`paper_backup`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `formats` | array | `[]` | Barcode formats to generate: `qr`, `aztec`, `pdf417` |
+| `output` | string | `"html"` | Output format identifier |
+| `include_pem` | boolean | `true` | Include PEM-encoded key text alongside barcodes |
+
+### Deployment Config (`deployment`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `packages` | array | List of deployment packages to create |
+
+Each package (`DeployPackage`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Archive name (produces `deploy/<name>.tar.gz`) |
+| `target` | string | Target directory path for the archive |
+| `patterns` | array | Glob patterns for files to include (e.g., `["*.crt", "*.pub"]`) |
+
+### Full Example
+
+See [`examples/quickstart.yaml`](examples/quickstart.yaml) for a complete working config.
+
+### Post-Quantum Keys
+
+There is no top-level post-quantum configuration block. PQ algorithms are selected
+per-cert via the `algorithm` field:
 
 ```yaml
-# Organization name embedded in certificate subjects
-organization: "Acme Corp"
-
-# Base output directory for all ceremony artifacts
-output_dir: "./pki-output"
-
-# Minimum passphrase length enforced during ceremony (default: 16)
-min_passphrase_length: 16
-
-# The certificate hierarchy tree
 hierarchy:
-  - # ... (see Hierarchy Node below)
-
-# Post-quantum key generation settings
-post_quantum:
-  # ... (see Post-Quantum section below)
-
-# Paper backup settings
-paper_backup:
-  # ... (see Paper Backup section below)
-
-# Deployment archive settings
-deploy:
-  # ... (see Deploy section below)
-
-# Passphrase groups -- share passphrases across multiple nodes
-passphrase_groups:
-  # ... (see Passphrase Groups below)
+  - name: pq-signer
+    cn: "PQ Code Signer"
+    cert_type: leaf
+    parent: intermediate-ca
+    algorithm: ml_dsa_87
+    validity:
+      years: 2
 ```
 
-### Hierarchy Node
-
-Each node in the `hierarchy` array represents a CA or leaf certificate:
+To generate both classical and PQ keys for the same cert, use `parallel_keys`:
 
 ```yaml
 hierarchy:
-  - name: "Acme Root CA"
-    # Common Name for the certificate subject
-    # Required.
-
-    key_type: rsa4096
-    # Key algorithm. One of: rsa2048, rsa4096, ed25519
-    # Default: rsa4096
-
-    validity_years: 20
-    # Certificate validity period in years.
-    # Required.
-
-    self_signed: true
-    # Whether this is a self-signed root CA.
-    # Default: false. Only valid for the top-level node.
-
-    path_length: 1
-    # X.509 pathlen constraint. Limits how many CAs can exist below.
-    # Optional. Omit for leaf certificates.
-
-    passphrase: true
-    # Whether to prompt for a passphrase for this key.
-    # Default: true for CAs, false for CI signers.
-
-    passphrase_group: "offline-cas"
-    # Share a passphrase with other nodes in the same group.
-    # Optional. See Passphrase Groups.
-
-    usage:
-      - code_signing
-    # Extended Key Usage. Options:
-    #   code_signing, server_auth, client_auth, email_protection,
-    #   time_stamping, lifetime_signing
-    # Optional. Defaults based on certificate type.
-
-    subject:
-      country: "US"
-      state: "California"
-      locality: "San Francisco"
-      org_unit: "Engineering"
-    # Additional X.509 subject fields.
-    # Optional. Organization is inherited from the top-level field.
-
-    children:
-      - # ... nested hierarchy nodes
-    # Sub-certificates signed by this CA.
-    # Optional. Leaf certificates have no children.
+  - name: hybrid-root
+    cn: "Hybrid Root CA"
+    cert_type: root
+    algorithm: rsa_4096
+    validity:
+      years: 20
+    parallel_keys:
+      - ed25519
+      - ml_dsa_87
 ```
 
-### Post-Quantum Settings
+### Passphrase Grouping
 
-```yaml
-post_quantum:
-  enabled: true
-  # Generate post-quantum keys alongside classical keys.
-  # Default: true
+Passphrase grouping is automatic -- there is no config field for it. The rules are:
 
-  algorithm: ml-dsa-87
-  # Signature algorithm. Options: ml-dsa-44, ml-dsa-65, ml-dsa-87
-  # Default: ml-dsa-87 (NIST security level 5)
+- Certs with `no_passphrase: true` get no passphrase
+- Each root CA gets its own passphrase
+- Non-root certs sharing the same parent share a passphrase
 
-  kem: ml-kem-1024
-  # Key encapsulation mechanism. Options: ml-kem-512, ml-kem-768, ml-kem-1024
-  # Default: ml-kem-1024 (NIST security level 5)
-  # Only generated for leaf certificates with code_signing usage.
-
-  cross_sign: true
-  # Generate cross-signing endorsements between PQ and classical keys.
-  # Default: true
-```
-
-### Paper Backup Settings
-
-```yaml
-paper_backup:
-  enabled: true
-  # Generate paper backup HTML after ceremony.
-  # Default: true
-
-  qr_parts: 3
-  # Split each key across N QR code sheets.
-  # Each sheet is needed for reconstruction.
-  # Default: 1 (no splitting)
-
-  include_public: true
-  # Include public keys/certificates in the paper backup.
-  # Default: true
-
-  output: "paper-backup.html"
-  # Output filename for the HTML paper backup.
-  # Default: "paper-backup.html" in the output directory.
-```
-
-### Deployment Settings
-
-```yaml
-deploy:
-  enabled: true
-  # Generate deployment archives after ceremony.
-  # Default: true
-
-  packages:
-    - name: offline
-      # Archive name. Produces: deploy/offline.tar.gz
-      description: "Offline root and intermediate keys -- safe storage only"
-      include:
-        - "root-ca/*.key"
-        - "intermediate-ca/*.key"
-
-    - name: online
-      description: "Keys and certs for online services"
-      include:
-        - "code-signing/*"
-        - "intermediate-ca/chain.crt"
-      exclude:
-        - "*.key"  # Exclude private keys from this package
-
-    - name: trust-bundle
-      description: "Public trust bundle for verification"
-      include:
-        - "**/*.crt"
-        - "pq/*.vk"
-        - "pq/manifest.json"
-```
-
-### Passphrase Groups
-
-Passphrase groups let you use a single passphrase for multiple keys. Useful when
-several CAs share the same security tier:
-
-```yaml
-passphrase_groups:
-  offline-cas:
-    min_length: 24
-    # Override minimum length for this group.
-
-  ci-signers:
-    passphrase: false
-    # CI signers get no passphrase (keys protected by deployment security).
-```
-
-Reference groups from hierarchy nodes via the `passphrase_group` field.
+This means you are prompted once per root CA and once per group of siblings,
+rather than once per cert.
 
 ## Security Architecture
 
@@ -483,29 +435,30 @@ Paper backups are generated as self-contained HTML files designed for printing. 
 page contains:
 
 1. **Header**: Certificate name, generation timestamp, key fingerprint
-2. **QR Code**: The private key material encoded as a QR code
-3. **PEM Text**: The full PEM-encoded key printed below the QR code as a fallback
+2. **Barcode**: The private key material encoded as a barcode (QR, Aztec, or PDF417)
+3. **PEM Text**: The full PEM-encoded key printed below the barcode as a fallback
+   (when `include_pem` is true)
 4. **Reconstruction Instructions**: Step-by-step procedure printed on each page
 
-When `qr_parts` is greater than 1, each key is split across multiple QR codes using
-byte-level splitting. All parts are required for reconstruction. Each part is labeled
-(e.g., "Part 1 of 3") and includes a SHA-256 checksum of the complete key for
-verification after reassembly.
+When multiple formats are specified in `paper_backup.formats`, each key gets a
+barcode in each requested format. Keys are split across multiple barcodes when they
+exceed a single barcode's capacity. Each part is labeled (e.g., "Part 1 of 3") and
+includes a SHA-256 checksum of the complete key for verification after reassembly.
 
 ### Reconstruction Procedure
 
-1. Scan all QR code parts for a given key
+1. Scan all barcode parts for a given key
 2. Concatenate the parts in order
 3. Verify the SHA-256 checksum matches the value printed on each page
 4. The result is the PEM-encoded private key
 
-If QR scanning fails, manually type the PEM text from the printed backup.
+If barcode scanning fails, manually type the PEM text from the printed backup.
 
 ## Building from Source
 
 ### Prerequisites
 
-- Rust 1.85+ (2024 edition)
+- Rust 1.93+ (2024 edition)
 - No system dependencies required for the build itself
 
 ### Debug Build
