@@ -9,8 +9,8 @@ certificates, paper backups, and deployment-ready archives. Supports classical R
 and Ed25519 alongside post-quantum ML-DSA-87 and ML-KEM-1024 (NIST FIPS 203/204,
 security level 5) via per-cert algorithm selection.
 
-Built by [Hedonistic IO](https://hedonistic.io) for internal use and released as open
-source because PKI tooling should not require a week of OpenSSL incantations.
+Copyright [Hedonistic, LLC](https://hedonistic.io). Built for internal use and released
+as open source because PKI tooling should not require a week of OpenSSL incantations.
 
 ## Features
 
@@ -504,8 +504,8 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 ## Credits
 
-Built by [Hedonistic IO](https://hedonistic.io). Part of the Hedonistic brand family
-of tools for infrastructure, security, and AI orchestration.
+Copyright 2026 [Hedonistic, LLC](https://hedonistic.io). Part of the Hedonistic brand
+family of tools for infrastructure, security, and AI orchestration.
 
 Post-quantum cryptography powered by the [ml-dsa](https://crates.io/crates/ml-dsa)
 and [ml-kem](https://crates.io/crates/ml-kem) crates implementing NIST FIPS 203/204.

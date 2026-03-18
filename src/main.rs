@@ -745,7 +745,7 @@ fn print_success(output: &PathBuf) {
 fn print_banner() {
     eprintln!("================================================================");
     eprintln!("  hedonistic-pki — Secure PKI Generator");
-    eprintln!("  hedonistic-pki v{}", env!("CARGO_PKG_VERSION"));
+    eprintln!("  v{}  Copyright 2026 Hedonistic, LLC", env!("CARGO_PKG_VERSION"));
     eprintln!("================================================================");
     eprintln!();
     eprintln!("Security measures active:");
