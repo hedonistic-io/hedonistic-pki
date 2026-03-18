@@ -9,9 +9,9 @@
 
 use anyhow::{Context, Result};
 use kem::{Decapsulate, Encapsulate, Generate};
-use ml_dsa::{MlDsa87, KeyGen, SigningKey, VerifyingKey, Signature};
-use ml_kem::{MlKem1024, DecapsulationKey, EncapsulationKey};
-use sha2::{Sha512, Digest};
+use ml_dsa::{KeyGen, MlDsa87, Signature, SigningKey, VerifyingKey};
+use ml_kem::{DecapsulationKey, EncapsulationKey, MlKem1024};
+use sha2::{Digest, Sha512};
 
 use crate::vault::{EncryptedBlob, Vault};
 
@@ -104,9 +104,12 @@ pub fn generate_pq_keys(vault: &Vault) -> Result<PqKeyBundle> {
     eprintln!("\n=== Generating Post-Quantum Keys (ML-DSA-87 + ML-KEM-1024) ===");
 
     eprintln!("  Generating Root CA ML-DSA-87 key pair...");
-    let root_signing = generate_signing_keypair(vault)
-        .context("Failed to generate root CA PQ signing key")?;
-    eprintln!("    Verifying key: {} bytes", root_signing.verifying_key_bytes.len());
+    let root_signing =
+        generate_signing_keypair(vault).context("Failed to generate root CA PQ signing key")?;
+    eprintln!(
+        "    Verifying key: {} bytes",
+        root_signing.verifying_key_bytes.len()
+    );
 
     eprintln!("  Generating Intermediate CA ML-DSA-87 key pair...");
     let intermediate_signing = generate_signing_keypair(vault)
@@ -119,7 +122,10 @@ pub fn generate_pq_keys(vault: &Vault) -> Result<PqKeyBundle> {
     eprintln!("  Generating Code Signing ML-KEM-1024 key pair...");
     let code_encryption = generate_encryption_keypair(vault)
         .context("Failed to generate code signing PQ encryption key")?;
-    eprintln!("    Encapsulation key: {} bytes", code_encryption.encapsulation_key_bytes.len());
+    eprintln!(
+        "    Encapsulation key: {} bytes",
+        code_encryption.encapsulation_key_bytes.len()
+    );
 
     // Cross-sign: root endorses intermediate's PQ key
     eprintln!("  Root CA endorsing Intermediate CA PQ key...");
@@ -127,7 +133,8 @@ pub fn generate_pq_keys(vault: &Vault) -> Result<PqKeyBundle> {
         &intermediate_signing.verifying_key_bytes,
         &root_signing.signing_key_encrypted,
         vault,
-    ).context("Failed to endorse intermediate CA PQ key")?;
+    )
+    .context("Failed to endorse intermediate CA PQ key")?;
 
     // Cross-sign: intermediate endorses code signing's PQ key
     eprintln!("  Intermediate CA endorsing Code Signing PQ key...");
@@ -135,7 +142,8 @@ pub fn generate_pq_keys(vault: &Vault) -> Result<PqKeyBundle> {
         &code_signing.verifying_key_bytes,
         &intermediate_signing.signing_key_encrypted,
         vault,
-    ).context("Failed to endorse code signing PQ key")?;
+    )
+    .context("Failed to endorse code signing PQ key")?;
 
     eprintln!("  All PQ keys generated and cross-signed.");
 
@@ -155,15 +163,19 @@ pub fn sign_data(
     signing_key_encrypted: &EncryptedBlob,
     vault: &Vault,
 ) -> Result<PqSignature> {
-    let key_bytes = vault.decrypt(signing_key_encrypted)
+    let key_bytes = vault
+        .decrypt(signing_key_encrypted)
         .context("Failed to decrypt PQ signing key from vault")?;
 
     let signing_key = DsaSigningKey::from_seed(
-        key_bytes.as_bytes().try_into()
-            .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 seed length"))?
+        key_bytes
+            .as_bytes()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 seed length"))?,
     );
 
-    let signature = signing_key.sign_deterministic(data, &[])
+    let signature = signing_key
+        .sign_deterministic(data, &[])
         .map_err(|e| anyhow::anyhow!("ML-DSA-87 signing failed: {e}"))?;
     let sig_encoded = signature.encode();
     let sig_bytes: Vec<u8> = sig_encoded.as_slice().to_vec();
@@ -187,11 +199,15 @@ pub fn verify_signature(
     verifying_key_bytes: &[u8],
 ) -> Result<bool> {
     let vk = DsaVerifyingKey::decode(
-        verifying_key_bytes.try_into()
-            .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 verifying key length"))?
+        verifying_key_bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 verifying key length"))?,
     );
 
-    let encoded_sig = sig.signature_bytes.as_slice().try_into()
+    let encoded_sig = sig
+        .signature_bytes
+        .as_slice()
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 signature length"))?;
     let signature = DsaSignature::decode(encoded_sig)
         .ok_or_else(|| anyhow::anyhow!("Failed to decode ML-DSA-87 signature"))?;
@@ -204,17 +220,19 @@ pub fn verify_signature(
 /// Output format: KEM_CIPHERTEXT || NONCE (12 bytes) || AES_CIPHERTEXT
 /// Public API for downstream encryptors (artifact protection)
 #[allow(dead_code)]
-pub fn pq_encrypt(
-    data: &[u8],
-    encapsulation_key_bytes: &[u8],
-) -> Result<Vec<u8>> {
-    use aes_gcm::{Aes256Gcm, aead::{Aead, KeyInit}};
+pub fn pq_encrypt(data: &[u8], encapsulation_key_bytes: &[u8]) -> Result<Vec<u8>> {
+    use aes_gcm::{
+        Aes256Gcm,
+        aead::{Aead, KeyInit},
+    };
     use ring::rand::{SecureRandom, SystemRandom};
 
     let ek = KemEncapsKey::new(
-        encapsulation_key_bytes.try_into()
-            .map_err(|_| anyhow::anyhow!("Invalid ML-KEM-1024 encapsulation key length"))?
-    ).map_err(|e| anyhow::anyhow!("Invalid ML-KEM-1024 encapsulation key: {e}"))?;
+        encapsulation_key_bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid ML-KEM-1024 encapsulation key length"))?,
+    )
+    .map_err(|e| anyhow::anyhow!("Invalid ML-KEM-1024 encapsulation key: {e}"))?;
 
     // Encapsulate — produces (ciphertext, shared_secret)
     let mut rng = rand_core::UnwrapErr(OsRng);
@@ -234,7 +252,8 @@ pub fn pq_encrypt(
     let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
 
     // Encrypt
-    let aes_ciphertext = cipher.encrypt(nonce, data)
+    let aes_ciphertext = cipher
+        .encrypt(nonce, data)
         .map_err(|e| anyhow::anyhow!("AES-256-GCM encryption failed: {e}"))?;
 
     // Pack: KEM_CT || NONCE || AES_CT
@@ -255,7 +274,10 @@ pub fn pq_decrypt(
     decapsulation_key_encrypted: &EncryptedBlob,
     vault: &Vault,
 ) -> Result<Vec<u8>> {
-    use aes_gcm::{Aes256Gcm, aead::{Aead, KeyInit}};
+    use aes_gcm::{
+        Aes256Gcm,
+        aead::{Aead, KeyInit},
+    };
     use ml_kem::ml_kem_1024;
 
     // ML-KEM-1024 ciphertext size
@@ -271,14 +293,18 @@ pub fn pq_decrypt(
     let aes_ciphertext = &encrypted[KEM_CT_LEN + NONCE_LEN..];
 
     // Decrypt the decapsulation key from vault
-    let dk_seed_bytes = vault.decrypt(decapsulation_key_encrypted)
+    let dk_seed_bytes = vault
+        .decrypt(decapsulation_key_encrypted)
         .context("Failed to decrypt ML-KEM decapsulation key from vault")?;
 
-    let seed: ml_kem::Seed = dk_seed_bytes.as_bytes().try_into()
+    let seed: ml_kem::Seed = dk_seed_bytes
+        .as_bytes()
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid ML-KEM-1024 seed length"))?;
     let dk = KemDecapsKey::from_seed(seed);
 
-    let kem_ct: ml_kem_1024::Ciphertext = kem_ct_bytes.try_into()
+    let kem_ct: ml_kem_1024::Ciphertext = kem_ct_bytes
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid KEM ciphertext length"))?;
 
     // Decapsulate to get shared secret
@@ -290,7 +316,8 @@ pub fn pq_decrypt(
         .map_err(|e| anyhow::anyhow!("AES-256-GCM init failed: {e}"))?;
 
     let nonce = aes_gcm::Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher.decrypt(nonce, aes_ciphertext)
+    let plaintext = cipher
+        .decrypt(nonce, aes_ciphertext)
         .map_err(|e| anyhow::anyhow!("AES-256-GCM decryption failed: {e}"))?;
 
     Ok(plaintext)
@@ -308,7 +335,8 @@ fn generate_signing_keypair(vault: &Vault) -> Result<PqSigningKeyPair> {
     let seed = keypair.to_seed();
     let seed_bytes: Vec<u8> = seed.as_slice().to_vec();
 
-    let signing_key_encrypted = vault.encrypt(&seed_bytes)
+    let signing_key_encrypted = vault
+        .encrypt(&seed_bytes)
         .context("Failed to encrypt PQ signing key seed in vault")?;
 
     Ok(PqSigningKeyPair {
@@ -330,7 +358,8 @@ fn generate_encryption_keypair(vault: &Vault) -> Result<PqEncryptionKeyPair> {
     // Store the decapsulation key bytes
     let seed_bytes: Vec<u8> = dk.to_bytes().as_slice().to_vec();
 
-    let decapsulation_key_encrypted = vault.encrypt(&seed_bytes)
+    let decapsulation_key_encrypted = vault
+        .encrypt(&seed_bytes)
         .context("Failed to encrypt PQ decapsulation key seed in vault")?;
 
     Ok(PqEncryptionKeyPair {
@@ -348,7 +377,9 @@ pub fn create_manifest(bundle: &PqKeyBundle) -> PqKeyManifest {
         nist_standard_signing: "FIPS 204".to_string(),
         nist_standard_encryption: "FIPS 203".to_string(),
         root_verifying_key_hex: hex::encode(&bundle.root_signing.verifying_key_bytes),
-        intermediate_verifying_key_hex: hex::encode(&bundle.intermediate_signing.verifying_key_bytes),
+        intermediate_verifying_key_hex: hex::encode(
+            &bundle.intermediate_signing.verifying_key_bytes,
+        ),
         code_signing_verifying_key_hex: hex::encode(&bundle.code_signing.verifying_key_bytes),
         code_encapsulation_key_hex: hex::encode(&bundle.code_encryption.encapsulation_key_bytes),
         intermediate_endorsement_hex: hex::encode(&bundle.intermediate_endorsement.signature_bytes),
@@ -368,25 +399,69 @@ pub fn write_pq_bundle(
     fs::create_dir_all(&pq_dir)?;
 
     // Public keys
-    write_pq_file(&pq_dir, "root-ca.vk", &bundle.root_signing.verifying_key_bytes)?;
-    write_pq_file(&pq_dir, "intermediate-ca.vk", &bundle.intermediate_signing.verifying_key_bytes)?;
-    write_pq_file(&pq_dir, "code-signing.vk", &bundle.code_signing.verifying_key_bytes)?;
-    write_pq_file(&pq_dir, "code-signing.ek", &bundle.code_encryption.encapsulation_key_bytes)?;
+    write_pq_file(
+        &pq_dir,
+        "root-ca.vk",
+        &bundle.root_signing.verifying_key_bytes,
+    )?;
+    write_pq_file(
+        &pq_dir,
+        "intermediate-ca.vk",
+        &bundle.intermediate_signing.verifying_key_bytes,
+    )?;
+    write_pq_file(
+        &pq_dir,
+        "code-signing.vk",
+        &bundle.code_signing.verifying_key_bytes,
+    )?;
+    write_pq_file(
+        &pq_dir,
+        "code-signing.ek",
+        &bundle.code_encryption.encapsulation_key_bytes,
+    )?;
 
     // Endorsement signatures
-    write_pq_file(&pq_dir, "intermediate-ca.endorsement.sig", &bundle.intermediate_endorsement.signature_bytes)?;
-    write_pq_file(&pq_dir, "code-signing.endorsement.sig", &bundle.code_signing_endorsement.signature_bytes)?;
+    write_pq_file(
+        &pq_dir,
+        "intermediate-ca.endorsement.sig",
+        &bundle.intermediate_endorsement.signature_bytes,
+    )?;
+    write_pq_file(
+        &pq_dir,
+        "code-signing.endorsement.sig",
+        &bundle.code_signing_endorsement.signature_bytes,
+    )?;
 
     // Secret keys — decrypt from vault, write with restrictive permissions
-    write_pq_secret_key(&pq_dir, "root-ca.sk", &bundle.root_signing.signing_key_encrypted, vault)?;
-    write_pq_secret_key(&pq_dir, "intermediate-ca.sk", &bundle.intermediate_signing.signing_key_encrypted, vault)?;
-    write_pq_secret_key(&pq_dir, "code-signing.sk", &bundle.code_signing.signing_key_encrypted, vault)?;
-    write_pq_secret_key(&pq_dir, "code-signing.dk", &bundle.code_encryption.decapsulation_key_encrypted, vault)?;
+    write_pq_secret_key(
+        &pq_dir,
+        "root-ca.sk",
+        &bundle.root_signing.signing_key_encrypted,
+        vault,
+    )?;
+    write_pq_secret_key(
+        &pq_dir,
+        "intermediate-ca.sk",
+        &bundle.intermediate_signing.signing_key_encrypted,
+        vault,
+    )?;
+    write_pq_secret_key(
+        &pq_dir,
+        "code-signing.sk",
+        &bundle.code_signing.signing_key_encrypted,
+        vault,
+    )?;
+    write_pq_secret_key(
+        &pq_dir,
+        "code-signing.dk",
+        &bundle.code_encryption.decapsulation_key_encrypted,
+        vault,
+    )?;
 
     // Write manifest
     let manifest = create_manifest(bundle);
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .context("Failed to serialize PQ manifest")?;
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest).context("Failed to serialize PQ manifest")?;
     fs::write(pq_dir.join("manifest.json"), manifest_json)?;
     eprintln!("  wrote pq/manifest.json");
 
@@ -399,8 +474,7 @@ pub fn write_pq_bundle(
 
 fn write_pq_file(dir: &std::path::Path, name: &str, data: &[u8]) -> Result<()> {
     let path = dir.join(name);
-    std::fs::write(&path, data)
-        .with_context(|| format!("Failed to write pq/{name}"))?;
+    std::fs::write(&path, data).with_context(|| format!("Failed to write pq/{name}"))?;
     eprintln!("  wrote pq/{name} ({} bytes)", data.len());
     Ok(())
 }
@@ -411,7 +485,8 @@ fn write_pq_secret_key(
     encrypted: &EncryptedBlob,
     vault: &Vault,
 ) -> Result<()> {
-    let key_bytes = vault.decrypt(encrypted)
+    let key_bytes = vault
+        .decrypt(encrypted)
         .context("Failed to decrypt PQ key from vault for writing")?;
 
     let path = dir.join(filename);
@@ -424,7 +499,10 @@ fn write_pq_secret_key(
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400))?;
     }
 
-    eprintln!("  wrote pq/{filename} (secret, 0o400, {} bytes)", key_bytes.as_bytes().len());
+    eprintln!(
+        "  wrote pq/{filename} (secret, 0o400, {} bytes)",
+        key_bytes.as_bytes().len()
+    );
     Ok(())
 }
 

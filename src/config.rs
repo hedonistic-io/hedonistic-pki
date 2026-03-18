@@ -7,7 +7,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 // ═══════════════════════════════════════════════════════════════
@@ -89,8 +89,9 @@ pub enum CertType {
     Leaf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Algorithm {
+    #[default]
     #[serde(rename = "rsa_4096", alias = "rsa4096")]
     Rsa4096,
     #[serde(rename = "ed25519")]
@@ -99,12 +100,6 @@ pub enum Algorithm {
     MlDsa87,
     #[serde(rename = "ml_kem_1024", alias = "ml_kem1024")]
     MlKem1024,
-}
-
-impl Default for Algorithm {
-    fn default() -> Self {
-        Self::Rsa4096
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,18 +322,18 @@ fn detect_cycles(config: &CeremonyConfig, name_map: &HashMap<&str, usize>) -> Re
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
 
     for (i, cert) in config.hierarchy.iter().enumerate() {
-        if let Some(ref parent_name) = cert.parent {
-            if let Some(&parent_idx) = name_map.get(parent_name.as_str()) {
-                children[parent_idx].push(i);
-                in_degree[i] += 1;
-            }
+        if let Some(ref parent_name) = cert.parent
+            && let Some(&parent_idx) = name_map.get(parent_name.as_str())
+        {
+            children[parent_idx].push(i);
+            in_degree[i] += 1;
         }
     }
 
     // Kahn's algorithm
     let mut queue: VecDeque<usize> = VecDeque::new();
-    for i in 0..n {
-        if in_degree[i] == 0 {
+    for (i, degree) in in_degree.iter().enumerate() {
+        if *degree == 0 {
             queue.push_back(i);
         }
     }
@@ -390,17 +385,17 @@ pub fn topological_sort(config: &CeremonyConfig) -> Result<Vec<&CertSpec>> {
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
 
     for (i, cert) in config.hierarchy.iter().enumerate() {
-        if let Some(ref parent_name) = cert.parent {
-            if let Some(&parent_idx) = name_map.get(parent_name.as_str()) {
-                children[parent_idx].push(i);
-                in_degree[i] += 1;
-            }
+        if let Some(ref parent_name) = cert.parent
+            && let Some(&parent_idx) = name_map.get(parent_name.as_str())
+        {
+            children[parent_idx].push(i);
+            in_degree[i] += 1;
         }
     }
 
     let mut queue: VecDeque<usize> = VecDeque::new();
-    for i in 0..n {
-        if in_degree[i] == 0 {
+    for (i, degree) in in_degree.iter().enumerate() {
+        if *degree == 0 {
             queue.push_back(i);
         }
     }
@@ -783,7 +778,10 @@ hierarchy:
         // Root must come first
         assert_eq!(sorted[0].name, "root-ca");
         // Intermediate before its child
-        let inter_pos = sorted.iter().position(|c| c.name == "intermediate").unwrap();
+        let inter_pos = sorted
+            .iter()
+            .position(|c| c.name == "intermediate")
+            .unwrap();
         let leaf_pos = sorted.iter().position(|c| c.name == "leaf-signer").unwrap();
         assert!(inter_pos < leaf_pos);
     }
@@ -867,7 +865,15 @@ hierarchy:
 
     #[test]
     fn all_algorithms_parse() {
-        for alg in ["rsa_4096", "ed25519", "ml_dsa_87", "ml_kem_1024", "rsa4096", "ml_dsa87", "ml_kem1024"] {
+        for alg in [
+            "rsa_4096",
+            "ed25519",
+            "ml_dsa_87",
+            "ml_kem_1024",
+            "rsa4096",
+            "ml_dsa87",
+            "ml_kem1024",
+        ] {
             let yaml = format!(
                 r#"
 name: alg-test

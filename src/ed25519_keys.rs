@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use ed25519_dalek::{Signer, Verifier, SigningKey, VerifyingKey, SECRET_KEY_LENGTH};
+use ed25519_dalek::{SECRET_KEY_LENGTH, Signer, SigningKey, Verifier, VerifyingKey};
 use zeroize::Zeroize;
 
 use crate::vault::Vault;
@@ -36,8 +36,7 @@ impl Drop for Ed25519KeyPair {
 pub fn generate_ed25519_keypair() -> Result<Ed25519KeyPair> {
     // Generate 32 bytes from OS CSPRNG
     let mut seed = [0u8; SECRET_KEY_LENGTH];
-    getrandom::fill(&mut seed)
-        .map_err(|e| anyhow::anyhow!("OS CSPRNG failed: {e}"))?;
+    getrandom::fill(&mut seed).map_err(|e| anyhow::anyhow!("OS CSPRNG failed: {e}"))?;
 
     let signing_key = SigningKey::from_bytes(&seed);
     seed.zeroize();
@@ -59,7 +58,10 @@ pub fn generate_ed25519_keypair() -> Result<Ed25519KeyPair> {
 ///
 /// Returns the encrypted blob that can be stored or written to disk.
 /// The vault uses ChaCha20-Poly1305 with an ephemeral key.
-pub fn encrypt_ed25519_key(key: &Ed25519KeyPair, vault: &Vault) -> Result<crate::vault::EncryptedBlob> {
+pub fn encrypt_ed25519_key(
+    key: &Ed25519KeyPair,
+    vault: &Vault,
+) -> Result<crate::vault::EncryptedBlob> {
     vault
         .encrypt(key.private_pem.as_bytes())
         .context("Failed to encrypt Ed25519 key in vault")
@@ -100,12 +102,12 @@ pub fn verify_ed25519(public_pem: &str, data: &[u8], signature_b64: &str) -> Res
 ///     OCTET STRING { OCTET STRING { 32 bytes of key } }
 ///   }
 const PKCS8_ED25519_PREFIX: &[u8] = &[
-    0x30, 0x2e,             // SEQUENCE (46 bytes)
-    0x02, 0x01, 0x00,       // INTEGER 0 (version)
-    0x30, 0x05,             // SEQUENCE (5 bytes)
+    0x30, 0x2e, // SEQUENCE (46 bytes)
+    0x02, 0x01, 0x00, // INTEGER 0 (version)
+    0x30, 0x05, // SEQUENCE (5 bytes)
     0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-    0x04, 0x22,             // OCTET STRING (34 bytes)
-    0x04, 0x20,             // OCTET STRING (32 bytes) — the actual key
+    0x04, 0x22, // OCTET STRING (34 bytes)
+    0x04, 0x20, // OCTET STRING (32 bytes) — the actual key
 ];
 
 /// SPKI prefix for Ed25519 public keys:
@@ -114,11 +116,11 @@ const PKCS8_ED25519_PREFIX: &[u8] = &[
 ///     BIT STRING { 0x00 padding, 32 bytes of key }
 ///   }
 const SPKI_ED25519_PREFIX: &[u8] = &[
-    0x30, 0x2a,             // SEQUENCE (42 bytes)
-    0x30, 0x05,             // SEQUENCE (5 bytes)
+    0x30, 0x2a, // SEQUENCE (42 bytes)
+    0x30, 0x05, // SEQUENCE (5 bytes)
     0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-    0x03, 0x21,             // BIT STRING (33 bytes)
-    0x00,                   // no unused bits
+    0x03, 0x21, // BIT STRING (33 bytes)
+    0x00, // no unused bits
 ];
 
 fn encode_ed25519_private_pem(key: &SigningKey) -> String {
@@ -155,10 +157,7 @@ fn encode_ed25519_public_pem(key: &VerifyingKey) -> String {
 
 fn decode_ed25519_public_pem(pem: &str) -> Result<VerifyingKey> {
     let pem = pem.trim();
-    let b64: String = pem
-        .lines()
-        .filter(|l| !l.starts_with("-----"))
-        .collect();
+    let b64: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
 
     let der = BASE64
         .decode(&b64)
@@ -180,8 +179,7 @@ fn decode_ed25519_public_pem(pem: &str) -> Result<VerifyingKey> {
         .try_into()
         .context("Public key must be exactly 32 bytes")?;
 
-    VerifyingKey::from_bytes(&key_bytes)
-        .context("Invalid Ed25519 public key point")
+    VerifyingKey::from_bytes(&key_bytes).context("Invalid Ed25519 public key point")
 }
 
 #[cfg(test)]

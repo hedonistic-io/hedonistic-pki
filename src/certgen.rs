@@ -10,9 +10,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rcgen::{
-    BasicConstraints, CertificateParams, CertificateRevocationListParams,
-    DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
-    KeyUsagePurpose, RevocationReason, RevokedCertParams,
+    BasicConstraints, CertificateParams, CertificateRevocationListParams, DnType,
+    ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose, RevocationReason, RevokedCertParams,
 };
 use time::{Duration, OffsetDateTime};
 use zeroize::Zeroize;
@@ -104,16 +103,18 @@ pub fn generate_root_ca(spec: &CertGenSpec) -> Result<GeneratedCert> {
 }
 
 /// Generate a certificate signed by a parent CA.
-pub fn generate_signed_cert(
-    spec: &CertGenSpec,
-    parent: &GeneratedCert,
-) -> Result<GeneratedCert> {
+pub fn generate_signed_cert(spec: &CertGenSpec, parent: &GeneratedCert) -> Result<GeneratedCert> {
     let key_pair = generate_key_pair(&spec.algorithm)?;
     let params = build_cert_params(spec)?;
 
     let signed_cert = params
         .signed_by(&key_pair, &parent.certificate, &parent.key_pair)
-        .with_context(|| format!("Failed to sign '{}' with parent '{}'", spec.name, parent.name))?;
+        .with_context(|| {
+            format!(
+                "Failed to sign '{}' with parent '{}'",
+                spec.name, parent.name
+            )
+        })?;
 
     let cert_pem = signed_cert.pem();
     let key_pem = key_pair.serialize_pem();
@@ -316,14 +317,13 @@ pub fn generate_crl(
 ) -> Result<String> {
     let root_crt_pem = std::fs::read_to_string(old_root_crt_path)
         .context("Failed to read old root CA certificate")?;
-    let root_key_pem = std::fs::read_to_string(old_root_key_path)
-        .context("Failed to read old root CA key")?;
+    let root_key_pem =
+        std::fs::read_to_string(old_root_key_path).context("Failed to read old root CA key")?;
     let inter_crt_pem = std::fs::read_to_string(old_inter_crt_path)
         .context("Failed to read old intermediate CA certificate")?;
 
     // Reconstruct the root CA from disk PEMs
-    let root_key = KeyPair::from_pem(&root_key_pem)
-        .context("Failed to parse old root CA key")?;
+    let root_key = KeyPair::from_pem(&root_key_pem).context("Failed to parse old root CA key")?;
     let root_params = CertificateParams::from_ca_cert_pem(&root_crt_pem)
         .context("Failed to parse old root CA cert")?;
     let root_cert = root_params
@@ -382,13 +382,19 @@ fn build_cert_params(spec: &CertGenSpec) -> Result<CertificateParams> {
 
     // Distinguished Name
     if let Some(ref country) = spec.country {
-        params.distinguished_name.push(DnType::CountryName, country.as_str());
+        params
+            .distinguished_name
+            .push(DnType::CountryName, country.as_str());
     }
     if let Some(ref org) = spec.organization {
-        params.distinguished_name.push(DnType::OrganizationName, org.as_str());
+        params
+            .distinguished_name
+            .push(DnType::OrganizationName, org.as_str());
     }
     if let Some(ref ou) = spec.organizational_unit {
-        params.distinguished_name.push(DnType::OrganizationalUnitName, ou.as_str());
+        params
+            .distinguished_name
+            .push(DnType::OrganizationalUnitName, ou.as_str());
     }
     params
         .distinguished_name
@@ -421,15 +427,23 @@ fn generate_csr(spec: &CertGenSpec, key_pair: &KeyPair) -> Result<String> {
     // are set by the issuing CA, not the requester.
     let mut params = CertificateParams::default();
     if let Some(ref country) = spec.country {
-        params.distinguished_name.push(DnType::CountryName, country.as_str());
+        params
+            .distinguished_name
+            .push(DnType::CountryName, country.as_str());
     }
     if let Some(ref org) = spec.organization {
-        params.distinguished_name.push(DnType::OrganizationName, org.as_str());
+        params
+            .distinguished_name
+            .push(DnType::OrganizationName, org.as_str());
     }
     if let Some(ref ou) = spec.organizational_unit {
-        params.distinguished_name.push(DnType::OrganizationalUnitName, ou.as_str());
+        params
+            .distinguished_name
+            .push(DnType::OrganizationalUnitName, ou.as_str());
     }
-    params.distinguished_name.push(DnType::CommonName, spec.common_name.as_str());
+    params
+        .distinguished_name
+        .push(DnType::CommonName, spec.common_name.as_str());
 
     let csr = params
         .serialize_request(key_pair)

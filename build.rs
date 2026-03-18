@@ -33,57 +33,74 @@ fn main() {
 
         // Create tar.gz of src/
         let status = Command::new("tar")
-            .args(["czf", tar_path.to_str().unwrap(), "-C", manifest_dir.to_str().unwrap()])
+            .args([
+                "czf",
+                tar_path.to_str().unwrap(),
+                "-C",
+                manifest_dir.to_str().unwrap(),
+            ])
             .args(["src/", "Cargo.toml", "build.rs"])
             .status();
 
-        if let Ok(s) = status {
-            if s.success() {
-                // Encrypt with the code signing certificate's public key
-                let enc_status = Command::new("openssl")
-                    .args([
-                        "cms", "-encrypt",
-                        "-aes-256-cbc",
-                        "-in", tar_path.to_str().unwrap(),
-                        "-outform", "DER",
-                        "-out", source_enc_path.to_str().unwrap(),
-                        signing_cert.to_str().unwrap(),
-                    ])
-                    .status();
+        if let Ok(s) = status
+            && s.success()
+        {
+            // Encrypt with the code signing certificate's public key
+            let enc_status = Command::new("openssl")
+                .args([
+                    "cms",
+                    "-encrypt",
+                    "-aes-256-cbc",
+                    "-in",
+                    tar_path.to_str().unwrap(),
+                    "-outform",
+                    "DER",
+                    "-out",
+                    source_enc_path.to_str().unwrap(),
+                    signing_cert.to_str().unwrap(),
+                ])
+                .status();
 
-                if let Ok(s) = enc_status {
-                    if s.success() {
-                        // Sign the encrypted blob with the signing key if available
-                        let signing_key = pki_dir.join("code-signing/code-signing.key");
-                        let chain = pki_dir.join("intermediate-ca/chain.crt");
+            if let Ok(s) = enc_status
+                && s.success()
+            {
+                // Sign the encrypted blob with the signing key if available
+                let signing_key = pki_dir.join("code-signing/code-signing.key");
+                let chain = pki_dir.join("intermediate-ca/chain.crt");
 
-                        if signing_key.exists() && chain.exists() {
-                            let sig_status = Command::new("openssl")
-                                .args([
-                                    "cms", "-sign", "-binary",
-                                    "-in", source_enc_path.to_str().unwrap(),
-                                    "-signer", signing_cert.to_str().unwrap(),
-                                    "-inkey", signing_key.to_str().unwrap(),
-                                    "-certfile", chain.to_str().unwrap(),
-                                    "-outform", "DER",
-                                    "-out", source_sig_path.to_str().unwrap(),
-                                ])
-                                .status();
+                if signing_key.exists() && chain.exists() {
+                    let sig_status = Command::new("openssl")
+                        .args([
+                            "cms",
+                            "-sign",
+                            "-binary",
+                            "-in",
+                            source_enc_path.to_str().unwrap(),
+                            "-signer",
+                            signing_cert.to_str().unwrap(),
+                            "-inkey",
+                            signing_key.to_str().unwrap(),
+                            "-certfile",
+                            chain.to_str().unwrap(),
+                            "-outform",
+                            "DER",
+                            "-out",
+                            source_sig_path.to_str().unwrap(),
+                        ])
+                        .status();
 
-                            if sig_status.map(|s| s.success()).unwrap_or(false) {
-                                eprintln!("cargo:warning=Source encrypted and signed successfully");
-                                // Clean up tar
-                                let _ = fs::remove_file(&tar_path);
-                                return;
-                            }
-                        }
-
-                        // Encrypted but no signature (key not available at build time)
-                        write_placeholder_sig(&source_sig_path);
+                    if sig_status.map(|s| s.success()).unwrap_or(false) {
+                        eprintln!("cargo:warning=Source encrypted and signed successfully");
+                        // Clean up tar
                         let _ = fs::remove_file(&tar_path);
                         return;
                     }
                 }
+
+                // Encrypted but no signature (key not available at build time)
+                write_placeholder_sig(&source_sig_path);
+                let _ = fs::remove_file(&tar_path);
+                return;
             }
         }
 
@@ -97,7 +114,12 @@ fn main() {
     // This is the bootstrap case — first build before any PKI exists
     let tar_path = out_dir.join("source.tar.gz");
     let status = Command::new("tar")
-        .args(["czf", tar_path.to_str().unwrap(), "-C", manifest_dir.to_str().unwrap()])
+        .args([
+            "czf",
+            tar_path.to_str().unwrap(),
+            "-C",
+            manifest_dir.to_str().unwrap(),
+        ])
         .args(["src/", "Cargo.toml", "build.rs"])
         .status();
 

@@ -14,7 +14,7 @@
 use anyhow::{Context, Result};
 use qrcode::QrCode;
 use qrcode::render::svg;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Maximum bytes per QR chunk — safe for QR binary mode with ECC level M
 const QR_CHUNK_SIZE: usize = 1600;
@@ -73,10 +73,7 @@ impl Criticality {
 }
 
 /// Generate the complete paper backup HTML file
-pub fn generate_paper_backup(
-    config: &PaperBackupConfig,
-    keys: &[KeyForBackup],
-) -> Result<String> {
+pub fn generate_paper_backup(config: &PaperBackupConfig, keys: &[KeyForBackup]) -> Result<String> {
     let date = current_date_string();
 
     let mut html = String::with_capacity(64 * 1024);
@@ -116,8 +113,8 @@ pub fn generate_qr_codes(data: &str, label: &str) -> Result<Vec<String>> {
     let bytes = data.as_bytes();
 
     if bytes.len() <= QR_CHUNK_SIZE {
-        let code = QrCode::new(bytes)
-            .with_context(|| format!("Failed to encode QR for {label}"))?;
+        let code =
+            QrCode::new(bytes).with_context(|| format!("Failed to encode QR for {label}"))?;
         let svg_str = code
             .render::<svg::Color>()
             .min_dimensions(200, 200)
@@ -214,11 +211,7 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn generate_cover_page(
-    config: &PaperBackupConfig,
-    keys: &[KeyForBackup],
-    date: &str,
-) -> String {
+fn generate_cover_page(config: &PaperBackupConfig, keys: &[KeyForBackup], date: &str) -> String {
     let mut toc_rows = String::new();
     for (i, key) in keys.iter().enumerate() {
         toc_rows.push_str(&format!(
@@ -411,7 +404,13 @@ fn recovery_filename(key: &KeyForBackup) -> String {
     let base = key
         .label
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .to_lowercase();
     format!("{base}.key")
@@ -419,15 +418,9 @@ fn recovery_filename(key: &KeyForBackup) -> String {
 
 fn test_command(key: &KeyForBackup) -> String {
     if key.key_type.contains("Ed25519") || key.key_type.contains("ed25519") {
-        format!(
-            "openssl pkey -in {} -check -noout",
-            recovery_filename(key),
-        )
+        format!("openssl pkey -in {} -check -noout", recovery_filename(key),)
     } else {
-        format!(
-            "openssl rsa -in {} -check -noout",
-            recovery_filename(key),
-        )
+        format!("openssl rsa -in {} -check -noout", recovery_filename(key),)
     }
 }
 

@@ -13,8 +13,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
 
 // ═══════════════════════════════════════════════════════════════
@@ -110,8 +110,6 @@ pub fn classify_file(path: &Path, is_ca: bool, is_offline: bool, no_passphrase: 
                 // RSA keys
                 if is_offline || is_ca {
                     FileClass::Offline
-                } else if no_passphrase {
-                    FileClass::Deploy
                 } else {
                     FileClass::Deploy
                 }
@@ -165,7 +163,10 @@ fn sha256_file(path: &Path) -> Result<String> {
 
 /// Describe a file based on its name and location
 fn describe_file(path: &Path) -> String {
-    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("unknown");
+    let filename = path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("unknown");
     let parent = path
         .parent()
         .and_then(|p| p.file_name())
@@ -222,7 +223,7 @@ pub fn inventory_outputs(pki_dir: &Path) -> Result<Vec<CeremonyOutput>> {
 }
 
 fn inventory_recursive(
-    base_dir: &Path,
+    _base_dir: &Path,
     current: &Path,
     outputs: &mut Vec<CeremonyOutput>,
 ) -> Result<()> {
@@ -235,20 +236,14 @@ fn inventory_recursive(
 
         if path.is_dir() {
             // Skip hidden directories (.build-tmp, .backup, etc.)
-            let dirname = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let dirname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if dirname.starts_with('.') {
                 continue;
             }
-            inventory_recursive(base_dir, &path, outputs)?;
+            inventory_recursive(_base_dir, &path, outputs)?;
         } else {
             // Skip .gitignore and other dotfiles
-            let filename = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if filename.starts_with('.') {
                 continue;
             }
@@ -342,10 +337,7 @@ pub fn create_deployment_archive(
     class: FileClass,
     archive_path: &Path,
 ) -> Result<()> {
-    let matching: Vec<&CeremonyOutput> = outputs
-        .iter()
-        .filter(|o| o.class == class)
-        .collect();
+    let matching: Vec<&CeremonyOutput> = outputs.iter().filter(|o| o.class == class).collect();
 
     if matching.is_empty() {
         anyhow::bail!("No files with classification {} to archive", class.label());
@@ -360,14 +352,9 @@ pub fn create_deployment_archive(
     let mut tar = tar::Builder::new(enc);
 
     for output in &matching {
-        let relative = output
-            .path
-            .strip_prefix(&base_dir)
-            .unwrap_or(&output.path);
+        let relative = output.path.strip_prefix(&base_dir).unwrap_or(&output.path);
         tar.append_path_with_name(&output.path, relative)
-            .with_context(|| {
-                format!("Failed to add {} to archive", output.path.display())
-            })?;
+            .with_context(|| format!("Failed to add {} to archive", output.path.display()))?;
     }
 
     tar.into_inner()
@@ -392,10 +379,7 @@ fn find_common_base(outputs: &[&CeremonyOutput]) -> Result<PathBuf> {
 
     let mut common = first;
     for output in &outputs[1..] {
-        let parent = output
-            .path
-            .parent()
-            .unwrap_or(Path::new("."));
+        let parent = output.path.parent().unwrap_or(Path::new("."));
         while !parent.starts_with(&common) {
             if !common.pop() {
                 return Ok(PathBuf::from("."));
@@ -515,10 +499,7 @@ mod tests {
     #[test]
     fn classify_intermediate_ca_key_is_offline() {
         let path = Path::new("intermediate-ca/intermediate-ca.key");
-        assert_eq!(
-            classify_file(path, true, false, false),
-            FileClass::Offline
-        );
+        assert_eq!(classify_file(path, true, false, false), FileClass::Offline);
     }
 
     #[test]
@@ -694,11 +675,8 @@ mod tests {
         }];
 
         // Trying to archive Deploy when there are none
-        let result = create_deployment_archive(
-            &outputs,
-            FileClass::Deploy,
-            Path::new("/tmp/empty.tar.gz"),
-        );
+        let result =
+            create_deployment_archive(&outputs, FileClass::Deploy, Path::new("/tmp/empty.tar.gz"));
         assert!(result.is_err());
     }
 
@@ -723,22 +701,16 @@ mod tests {
         assert_eq!(outputs.len(), 4);
 
         // root-ca.key should be offline (root CA)
-        let root_key = outputs.iter().find(|o| {
-            o.path
-                .file_name()
-                .and_then(|f| f.to_str())
-                == Some("root-ca.key")
-        });
+        let root_key = outputs
+            .iter()
+            .find(|o| o.path.file_name().and_then(|f| f.to_str()) == Some("root-ca.key"));
         assert!(root_key.is_some());
         assert_eq!(root_key.unwrap().class, FileClass::Offline);
 
         // root-ca.crt should be public
-        let root_crt = outputs.iter().find(|o| {
-            o.path
-                .file_name()
-                .and_then(|f| f.to_str())
-                == Some("root-ca.crt")
-        });
+        let root_crt = outputs
+            .iter()
+            .find(|o| o.path.file_name().and_then(|f| f.to_str()) == Some("root-ca.crt"));
         assert!(root_crt.is_some());
         assert_eq!(root_crt.unwrap().class, FileClass::Public);
     }
@@ -751,11 +723,7 @@ mod tests {
 
         let outputs = inventory_outputs(&tmp).unwrap();
         assert_eq!(outputs.len(), 1);
-        assert!(outputs[0]
-            .path
-            .file_name()
-            .and_then(|f| f.to_str())
-            == Some("root.crt"));
+        assert!(outputs[0].path.file_name().and_then(|f| f.to_str()) == Some("root.crt"));
     }
 
     // ── SHA-256 tests ──

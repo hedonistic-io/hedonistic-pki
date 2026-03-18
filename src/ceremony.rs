@@ -11,7 +11,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rcgen::{ExtendedKeyUsagePurpose, KeyUsagePurpose};
 use zeroize::Zeroize;
 
@@ -55,7 +55,10 @@ fn config_to_certgen_spec(spec: &CertSpec, org: &str) -> CertGenSpec {
         Algorithm::Rsa4096 | Algorithm::MlDsa87 | Algorithm::MlKem1024 => CertAlgorithm::Rsa4096,
     };
 
-    let is_ca = matches!(spec.cert_type, CertType::Root | CertType::Intermediate | CertType::SubCa);
+    let is_ca = matches!(
+        spec.cert_type,
+        CertType::Root | CertType::Intermediate | CertType::SubCa
+    );
 
     // Determine key usages from extensions or defaults
     let key_usages = if let Some(ref ext) = spec.extensions {
@@ -116,10 +119,7 @@ fn config_to_certgen_spec(spec: &CertSpec, org: &str) -> CertGenSpec {
         .as_ref()
         .and_then(|s| s.organizational_unit.clone());
 
-    let country = spec
-        .subject
-        .as_ref()
-        .and_then(|s| s.country.clone());
+    let country = spec.subject.as_ref().and_then(|s| s.country.clone());
 
     CertGenSpec {
         name: spec.name.clone(),
@@ -219,10 +219,7 @@ pub fn run_ceremony(config_path: &str, output_override: Option<&str>) -> Result<
             format!("group [{}]", names.join(", "))
         };
 
-        let pass = prompt_passphrase(
-            &label,
-            cfg.passphrases.min_length,
-        )?;
+        let pass = prompt_passphrase(&label, cfg.passphrases.min_length)?;
 
         // Store passphrase for each cert in the group
         for cert_spec in group {
@@ -271,16 +268,8 @@ pub fn run_ceremony(config_path: &str, output_override: Option<&str>) -> Result<
 
         let certgen_spec = config_to_certgen_spec(spec, &cfg.organization);
 
-        let cert = if spec.parent.is_none() {
-            // Root CA — self-signed
-            let c = certgen::generate_root_ca(&certgen_spec)
-                .with_context(|| format!("Failed to generate root CA '{}'", spec.name))?;
-            print_ok(&format!("{} keypair generated", algo_label));
-            print_ok(&format!("Self-signed certificate ({})", validity_desc));
-            c
-        } else {
+        let cert = if let Some(parent_name) = spec.parent.as_ref() {
             // Signed by parent
-            let parent_name = spec.parent.as_ref().unwrap();
             let parent = cert_registry.get(parent_name.as_str()).with_context(|| {
                 format!(
                     "Parent '{}' not found — should have been generated first",
@@ -308,6 +297,13 @@ pub fn run_ceremony(config_path: &str, output_override: Option<&str>) -> Result<
                 "Signed by {} ({}{})",
                 parent_name, validity_desc, path_info
             ));
+            c
+        } else {
+            // Root CA — self-signed
+            let c = certgen::generate_root_ca(&certgen_spec)
+                .with_context(|| format!("Failed to generate root CA '{}'", spec.name))?;
+            print_ok(&format!("{} keypair generated", algo_label));
+            print_ok(&format!("Self-signed certificate ({})", validity_desc));
             c
         };
 
@@ -546,7 +542,9 @@ pub fn dry_run_ceremony(config_path: &str, output_override: Option<&str>) -> Res
         }
     }
 
-    eprintln!("\n{BOLD}Dry run complete.{RESET} No keys generated. Remove --dry-run to execute the ceremony.");
+    eprintln!(
+        "\n{BOLD}Dry run complete.{RESET} No keys generated. Remove --dry-run to execute the ceremony."
+    );
     Ok(())
 }
 
@@ -601,7 +599,11 @@ fn print_tree_node(
     };
     let offline_marker = if spec.offline { " {OFFLINE}" } else { "" };
     let parallel_marker = if !spec.parallel_keys.is_empty() {
-        let keys: Vec<String> = spec.parallel_keys.iter().map(|a| format!("{:?}", a)).collect();
+        let keys: Vec<String> = spec
+            .parallel_keys
+            .iter()
+            .map(|a| format!("{:?}", a))
+            .collect();
         format!(" +{}", keys.join("+"))
     } else {
         String::new()
@@ -635,21 +637,17 @@ fn print_tree_node(
 /// Prompt the user for a passphrase with confirmation
 fn prompt_passphrase(label: &str, min_len: usize) -> Result<String> {
     loop {
-        let mut pass1 =
-            rpassword::prompt_password(format!("  Enter passphrase for {label}: "))
-                .context("Failed to read passphrase")?;
+        let mut pass1 = rpassword::prompt_password(format!("  Enter passphrase for {label}: "))
+            .context("Failed to read passphrase")?;
 
         if pass1.len() < min_len {
-            eprintln!(
-                "    {RED}ERROR{RESET}: Must be at least {min_len} characters. Try again."
-            );
+            eprintln!("    {RED}ERROR{RESET}: Must be at least {min_len} characters. Try again.");
             pass1.zeroize();
             continue;
         }
 
-        let mut pass2 =
-            rpassword::prompt_password(format!("  Confirm passphrase for {label}: "))
-                .context("Failed to read confirmation")?;
+        let mut pass2 = rpassword::prompt_password(format!("  Confirm passphrase for {label}: "))
+            .context("Failed to read confirmation")?;
 
         if pass1 != pass2 {
             eprintln!("    {RED}ERROR{RESET}: Passphrases don't match. Try again.");
@@ -670,8 +668,7 @@ fn prompt_passphrase(label: &str, min_len: usize) -> Result<String> {
 
 /// Write a ceremony file with appropriate permissions
 fn write_ceremony_file(path: &Path, data: &[u8]) -> Result<()> {
-    fs::write(path, data)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, data).with_context(|| format!("Failed to write {}", path.display()))?;
 
     #[cfg(unix)]
     {
@@ -815,9 +812,11 @@ hierarchy:
         let certgen_spec = config_to_certgen_spec(signing_spec, &cfg.organization);
 
         assert!(!certgen_spec.is_ca);
-        assert!(certgen_spec
-            .ext_key_usages
-            .contains(&ExtendedKeyUsagePurpose::CodeSigning));
+        assert!(
+            certgen_spec
+                .ext_key_usages
+                .contains(&ExtendedKeyUsagePurpose::CodeSigning)
+        );
     }
 
     #[test]
