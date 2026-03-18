@@ -1,0 +1,91 @@
+[package]
+name = "hedonistic-pki"
+version = "2.0.0"
+edition = "2024"
+description = "Config-driven PKI ceremony tool — zero dependencies, airgap-safe, post-quantum ready"
+license = "Apache-2.0"
+repository = "https://github.com/hedonistic-io/hedonistic-pki"
+readme = "README.md"
+keywords = ["pki", "certificate", "post-quantum", "airgap", "ceremony"]
+categories = ["cryptography", "command-line-utilities"]
+
+[[bin]]
+name = "hedonistic-pki"
+path = "src/main.rs"
+
+[package.metadata.hedonistic]
+conceived = "2026-03-08T17:18:00-08:00"
+conceived_by = "Claude AI Agent and Damien Christian at the HELM"
+location = "California Republic"
+significance = "First post-quantum PKI tooling for Hedonistic LLC"
+brand_family = "Hedonistic IO"
+
+[dependencies]
+# Certificate generation (classical RSA + X.509)
+rcgen = { version = "0.13", features = ["x509-parser", "aws_lc_rs"] }
+x509-parser = "0.16"
+time = "0.3"
+
+# Classical cryptography
+ring = "0.17"
+chacha20poly1305 = "0.10"        # Symmetric — already PQ-safe (256-bit)
+aes-gcm = "0.10"                 # Symmetric — already PQ-safe (AES-256)
+
+# Ed25519 (pure Rust — no openssl dependency)
+ed25519-dalek = { version = "2", features = ["rand_core", "pem"] }
+
+# Post-quantum cryptography (NIST FIPS 203/204)
+ml-kem = "0.3.0-rc.0"           # FIPS 203: ML-KEM-1024 (Kyber) — key encapsulation
+ml-dsa = "0.1.0-rc.7"           # FIPS 204: ML-DSA-87 (Dilithium) — digital signatures
+
+# Secure memory
+zeroize = { version = "1", features = ["derive"] }
+
+# Password input
+rpassword = "7"
+
+# Serialization (JSON + YAML config)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+
+# Hashing
+sha2 = "0.10"
+
+# RNG
+rand_core = "0.10"
+getrandom = "0.3"
+kem = "0.3.0-rc.6"
+
+# Hex encoding
+hex = "0.4"
+
+# QR code generation (pure Rust)
+qrcode = "0.14"
+
+# Barcode rendering to image
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Base64 encoding (for data URIs in HTML)
+base64 = "0.22"
+
+# Tar archive generation (deployment package)
+tar = "0.4"
+flate2 = "1"
+
+# Linux-specific
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"        # Optimize for size
+lto = true             # Link-time optimization
+codegen-units = 1      # Single codegen unit for better optimization
+strip = true           # Strip debug symbols
+panic = "abort"        # No unwinding — abort on panic (prevents stack traces leaking data)

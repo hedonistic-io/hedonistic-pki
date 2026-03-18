@@ -1,0 +1,5 @@
+# Pin the exact Rust toolchain for reproducible builds
+# This ensures the same binary can be rebuilt decades later
+[toolchain]
+channel = "1.93.1"
+profile = "minimal"

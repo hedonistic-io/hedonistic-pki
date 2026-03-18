@@ -1,0 +1,44 @@
+# Build artifacts
+/target
+
+# Private keys — NEVER commit
+*.key
+*.p12
+*.pfx
+
+# Generated certificates (environment-specific)
+*.crt
+*.pem
+*.csr
+*.srl
+
+# CA database files
+index.txt*
+serial*
+crlnumber*
+.rand
+
+# CRL files
+*.crl
+
+# Paper backup output (contains key material)
+paper-backup/
+
+# Deployment archives
+*.tar.gz
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pre-built binaries (use GitHub Releases)
+hedonistic-pki-*
+*.sha512
+*.sig
+*.asc
