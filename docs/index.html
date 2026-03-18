@@ -3,867 +3,764 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>hedonistic-pki -- Config-driven PKI ceremony tool</title>
-<meta name="description" content="Config-driven PKI ceremony tool. Zero dependencies, airgap-safe, post-quantum ready. A single static binary that generates your entire PKI hierarchy from a YAML config file.">
+<title>hedonistic-pki</title>
+<meta name="description" content="PKI ceremony tool. One binary. No OpenSSL. Post-quantum.">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
-  --bg-deep: #0a0a0f;
-  --bg-mid: #12121a;
-  --bg-card: #181825;
-  --bg-code: #0e0e18;
-  --accent: #00d4ff;
-  --accent-dim: #0099bb;
-  --accent-glow: rgba(0, 212, 255, 0.15);
-  --text: #e8e8f0;
-  --text-dim: #8888a0;
-  --text-bright: #ffffff;
-  --border: #2a2a3a;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-
-html { scroll-behavior: smooth; }
 body {
-  font-family: var(--font);
-  background: var(--bg-deep);
-  color: var(--text);
-  line-height: 1.7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: #fff;
+  color: #24292f;
+  line-height: 1.6;
+  font-size: 17px;
+}
+
+a { color: #0550ae; }
+a:hover { color: #0969da; }
+
+.wrap { max-width: 740px; margin: 0 auto; padding: 0 24px; }
+
+/* Header */
+header {
+  border-bottom: 1px solid #d1d9e0;
+  padding: 14px 0;
+  position: sticky;
+  top: 0;
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+header .wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+header .name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24292f;
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+header nav a {
+  font-size: 14px;
+  color: #57606a;
+  text-decoration: none;
+  margin-left: 20px;
+}
+header nav a:hover { color: #0550ae; }
+
+/* Intro */
+.intro {
+  padding: 80px 0 60px;
+}
+.intro h1 {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 24px;
+  color: #1a1a1a;
+}
+.intro .lead {
+  font-size: 19px;
+  color: #57606a;
+  max-width: 600px;
+  margin-bottom: 32px;
+}
+.intro .links a {
+  display: inline-block;
+  margin-right: 16px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Sections */
+section { padding: 48px 0; }
+section + section { border-top: 1px solid #d1d9e0; }
+
+h2 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+}
+h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 32px;
+  margin-bottom: 10px;
+}
+h4 {
   font-size: 16px;
-  -webkit-font-smoothing: antialiased;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 8px;
 }
 
-/* NAV */
-nav {
-  position: sticky; top: 0; z-index: 100;
-  background: rgba(10, 10, 15, 0.92);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  padding: 0 2rem;
-}
-.nav-inner {
-  max-width: 1100px; margin: 0 auto;
-  display: flex; align-items: center; justify-content: space-between;
-  height: 56px;
-}
-.nav-brand { font-weight: 700; font-size: 1rem; color: var(--text-bright); text-decoration: none; }
-.nav-brand span { color: var(--accent); }
-.nav-links { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
-.nav-links a { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; transition: color 0.2s; }
-.nav-links a:hover { color: var(--accent); }
-.nav-toggle { display: none; background: none; border: none; color: var(--text); font-size: 1.4rem; cursor: pointer; }
+p { margin-bottom: 14px; }
+p + p { margin-top: 0; }
 
-/* SECTIONS */
-section { padding: 5rem 2rem; }
-.container { max-width: 1100px; margin: 0 auto; }
-h2 { font-size: 2rem; margin-bottom: 0.5rem; color: var(--text-bright); }
-h3 { font-size: 1.35rem; margin-top: 2.5rem; margin-bottom: 0.75rem; color: var(--text-bright); }
-h4 { font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem; color: var(--accent); }
-.section-sub { color: var(--text-dim); margin-bottom: 2.5rem; font-size: 1.05rem; }
-p { margin-bottom: 1rem; }
-a { color: var(--accent); }
-
-/* HERO */
-.hero {
-  min-height: 80vh; display: flex; align-items: center; justify-content: center; text-align: center;
-  background: radial-gradient(ellipse at 50% 20%, rgba(0,212,255,0.06) 0%, transparent 60%), var(--bg-deep);
-  padding: 6rem 2rem;
-}
-.hero h1 { font-size: 3.5rem; color: var(--text-bright); margin-bottom: 1rem; letter-spacing: -0.02em; }
-.hero h1 span { color: var(--accent); }
-.hero .tagline { font-size: 1.2rem; color: var(--text-dim); max-width: 680px; margin: 0 auto 0.75rem; }
-.hero .oneliner { font-size: 1.05rem; color: var(--text); max-width: 620px; margin: 0 auto 2.5rem; }
-.hero-ctas { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-.btn {
-  display: inline-block; padding: 0.75rem 1.75rem; border-radius: 6px;
-  text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: all 0.2s;
-}
-.btn-primary { background: var(--accent); color: var(--bg-deep); }
-.btn-primary:hover { background: #33dfff; box-shadow: 0 0 20px var(--accent-glow); }
-.btn-secondary { border: 1px solid var(--border); color: var(--text); background: transparent; }
-.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-
-/* FEATURES GRID */
-.features-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.25rem; margin-top: 1rem;
-}
-.feature-card {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 1.5rem; transition: border-color 0.2s, box-shadow 0.2s;
-}
-.feature-card:hover { border-color: var(--accent-dim); box-shadow: 0 0 24px var(--accent-glow); }
-.feature-card .icon { font-size: 1.5rem; margin-bottom: 0.75rem; display: block; }
-.feature-card h3 { font-size: 1.05rem; margin: 0 0 0.5rem; color: var(--text-bright); }
-.feature-card p { font-size: 0.92rem; color: var(--text-dim); margin: 0; line-height: 1.6; }
-
-/* CODE BLOCKS */
+/* Code */
 pre {
-  background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px;
-  padding: 1.25rem 1.5rem; overflow-x: auto; margin: 1rem 0 1.5rem;
-  font-size: 0.88rem; line-height: 1.65;
+  background: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 14px 0 18px;
 }
-code { font-family: var(--mono); }
-pre code { color: var(--text); }
+code {
+  font-family: "SF Mono", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
 p code, li code, td code {
-  background: var(--bg-code); border: 1px solid var(--border); border-radius: 3px;
-  padding: 0.15em 0.4em; font-size: 0.88em; color: var(--accent);
+  background: #eff1f3;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
 }
-/* Syntax-like coloring */
-.kw { color: #c792ea; }
-.str { color: #c3e88d; }
-.cmt { color: #546e7a; }
-.flag { color: #f78c6c; }
-.val { color: #82aaff; }
-.cmd { color: #ffcb6b; }
+.sh { color: #6e7781; }
 
-/* TABLES */
-.table-wrap { overflow-x: auto; margin: 1rem 0 1.5rem; }
-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+/* Tables */
+.tbl { overflow-x: auto; margin: 14px 0 18px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
 th {
-  text-align: left; padding: 0.75rem 1rem; background: var(--bg-card);
-  border-bottom: 2px solid var(--accent-dim); color: var(--accent); font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #d1d9e0;
+  font-weight: 600;
+  color: #24292f;
+  white-space: nowrap;
 }
-td { padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-tr:hover td { background: rgba(0,212,255,0.03); }
-
-/* LISTS */
-ul, ol { margin: 0.5rem 0 1.5rem 1.5rem; }
-li { margin-bottom: 0.35rem; }
-
-/* BANNER */
-.banner {
-  background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(0,212,255,0.02));
-  border: 1px solid var(--accent-dim); border-radius: 8px;
-  padding: 2.5rem; text-align: center; margin-top: 2rem;
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eaeef2;
+  vertical-align: top;
 }
-.banner h3 { color: var(--accent); margin-top: 0; font-size: 1.3rem; }
-.banner p { color: var(--text); max-width: 600px; margin: 0.75rem auto; }
-.banner a { color: var(--accent); font-weight: 600; }
 
-/* FOOTER */
+/* Lists */
+ul, ol { margin: 8px 0 18px 24px; }
+li { margin-bottom: 4px; }
+
+/* Notice */
+.notice {
+  background: #ddf4ff;
+  border: 1px solid #54aeff;
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin: 24px 0;
+  font-size: 15px;
+}
+.notice.warn {
+  background: #fff8c5;
+  border-color: #d4a72c;
+}
+
+/* Tree */
+.tree {
+  font-family: "SF Mono", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #57606a;
+  background: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin: 14px 0 18px;
+  overflow-x: auto;
+}
+
+/* Footer */
 footer {
-  border-top: 1px solid var(--border); padding: 3rem 2rem; text-align: center;
-  background: var(--bg-mid);
+  border-top: 1px solid #d1d9e0;
+  padding: 40px 0;
+  margin-top: 24px;
+  color: #57606a;
+  font-size: 14px;
 }
-footer p { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 0.5rem; }
-footer a { color: var(--accent); text-decoration: none; }
-footer a:hover { text-decoration: underline; }
-.footer-links { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
+footer a { color: #57606a; margin-right: 16px; }
+footer a:hover { color: #0550ae; }
+footer .copy { margin-top: 12px; }
 
-/* DIVIDER */
-.divider { border: none; border-top: 1px solid var(--border); margin: 0; }
-
-/* ALT BG */
-.bg-alt { background: var(--bg-mid); }
-
-/* OUTPUT TREE */
-.tree { font-family: var(--mono); font-size: 0.85rem; color: var(--text-dim); line-height: 1.8; }
-.tree span { color: var(--text); }
-.tree .cmt { color: #546e7a; }
-
-/* RESPONSIVE */
-@media (max-width: 768px) {
-  .hero h1 { font-size: 2.2rem; }
-  section { padding: 3rem 1.25rem; }
-  .nav-links { display: none; position: absolute; top: 56px; left: 0; right: 0; background: var(--bg-deep); border-bottom: 1px solid var(--border); flex-direction: column; padding: 1rem 2rem; gap: 0.75rem; }
-  .nav-links.open { display: flex; }
-  .nav-toggle { display: block; }
-  .features-grid { grid-template-columns: 1fr; }
-  h2 { font-size: 1.5rem; }
-  pre { font-size: 0.82rem; padding: 1rem; }
+@media (max-width: 640px) {
+  .intro h1 { font-size: 28px; }
+  .intro { padding: 48px 0 36px; }
+  header nav a { margin-left: 12px; font-size: 13px; }
+  pre { font-size: 13px; padding: 12px 14px; }
 }
 </style>
 </head>
 <body>
 
-<!-- NAV -->
-<nav>
-  <div class="nav-inner">
-    <a href="#" class="nav-brand"><span>hedonistic</span>-pki</a>
-    <button class="nav-toggle" aria-label="Toggle menu">&#9776;</button>
-    <div class="nav-links">
-      <a href="#features">Features</a>
-      <a href="#quickstart">Quick Start</a>
-      <a href="#installation">Installation</a>
-      <a href="#usage">Usage</a>
-      <a href="#configuration">Configuration</a>
+<header>
+  <div class="wrap">
+    <a href="#" class="name">hedonistic-pki</a>
+    <nav>
+      <a href="#start">Start</a>
+      <a href="#commands">Commands</a>
+      <a href="#config">Config</a>
       <a href="#security">Security</a>
-      <a href="#paper-backup">Paper Backup</a>
-      <a href="#building">Building</a>
-      <a href="#contributing">Contributing</a>
+      <a href="#contribute">Contribute</a>
       <a href="https://github.com/hedonistic-io/hedonistic-pki">GitHub</a>
-    </div>
+    </nav>
   </div>
-</nav>
+</header>
 
-<!-- HERO -->
-<section class="hero" id="hero">
-  <div>
-    <h1><span>hedonistic</span>-pki</h1>
-    <p class="tagline">Config-driven PKI ceremony tool &mdash; zero dependencies, airgap-safe, post-quantum ready.</p>
-    <p class="oneliner">A single static binary that generates your entire PKI hierarchy from a YAML config file.</p>
-    <div class="hero-ctas">
-      <a href="https://github.com/hedonistic-io/hedonistic-pki/releases/latest" class="btn btn-primary">Download v1.0.0</a>
-      <a href="https://github.com/hedonistic-io/hedonistic-pki" class="btn btn-secondary">View on GitHub</a>
-    </div>
+<div class="wrap">
+
+<!-- INTRO -->
+<div class="intro">
+  <h1>hedonistic-pki</h1>
+  <p class="lead">
+    PKI ceremonies are miserable. You spend a week reading OpenSSL man pages,
+    writing shell scripts held together with prayer, and praying you typed the
+    right flags on your airgapped laptop. This tool exists so you never have
+    to do that again.
+  </p>
+  <p>
+    Write a YAML file that describes your certificate hierarchy. Run one command.
+    Walk away with encrypted keys, signed certificates, post-quantum key bundles,
+    paper backups, and deployment archives. The entire thing is a single static
+    binary with no runtime dependencies. Not even OpenSSL.
+  </p>
+  <div class="links">
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/releases/latest">Download v1.0.0</a>
+    <a href="https://github.com/hedonistic-io/hedonistic-pki">Source on GitHub</a>
   </div>
+</div>
+
+<!-- WHY THIS EXISTS -->
+<section>
+  <h2>The problem</h2>
+  <p>
+    Every organization that takes security seriously eventually needs its own PKI.
+    A root CA that lives in a safe. An intermediate that signs things. Leaf certs
+    for code signing or mutual TLS. Maybe post-quantum keys if you're thinking
+    about the future.
+  </p>
+  <p>
+    The tooling for this is terrible. You either pay a vendor tens of thousands of
+    dollars, or you cobble together a pile of <code>openssl req</code> and
+    <code>openssl ca</code> commands and hope the extensions are right. You Google
+    "openssl create intermediate CA" for the fourth time this year. You wonder if
+    you got the pathlen constraint backwards. You definitely forgot to set the key
+    usage bits.
+  </p>
+  <p>
+    hedonistic-pki replaces all of that with a config file:
+  </p>
+<pre><code>name: my-company-pki
+organization: "My Company"
+
+hierarchy:
+  - name: root-ca
+    cn: "My Company Root CA"
+    cert_type: root
+    algorithm: rsa_4096
+    validity:
+      years: 20
+    offline: true
+
+  - name: intermediate
+    cn: "My Company Intermediate CA"
+    cert_type: intermediate
+    parent: root-ca
+    algorithm: rsa_4096
+    validity:
+      years: 10
+    pathlen: 0
+
+  - name: code-signing
+    cn: "My Company Code Signing"
+    cert_type: leaf
+    parent: intermediate
+    algorithm: rsa_4096
+    validity:
+      years: 2
+    extensions:
+      extended_key_usage: [codeSigning]</code></pre>
+  <p>
+    That is your entire ceremony. Run <code>hedonistic-pki ceremony --config ceremony.yaml</code>
+    and it generates everything: the root CA, the intermediate signed by the root,
+    the code signing cert signed by the intermediate, post-quantum keys in parallel,
+    paper backups for your safe, and deployment archives sorted by classification.
+  </p>
 </section>
 
-<!-- FEATURES -->
-<section id="features" class="bg-alt">
-  <div class="container">
-    <h2>Features</h2>
-    <p class="section-sub">Everything you need for a secure PKI ceremony, in a single binary.</p>
-    <div class="features-grid">
-
-      <div class="feature-card">
-        <span class="icon">&#128220;</span>
-        <h3>Config-Driven Ceremonies</h3>
-        <p>Describe your entire PKI hierarchy in YAML or JSON &mdash; every CA, intermediate, and leaf &mdash; as a flat list with parent references. The tool topologically sorts the hierarchy and builds certificates in the correct order.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128230;</span>
-        <h3>Zero System Dependencies</h3>
-        <p>Single static binary. No OpenSSL, no GnuTLS, no shared libraries. Copy it to a USB stick and run it anywhere.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#9992;</span>
-        <h3>Airgap-Safe</h3>
-        <p>Runs fully offline. No network calls, no telemetry, no update checks. Designed for ceremony machines that never touch a network.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#9883;</span>
-        <h3>Post-Quantum Ready</h3>
-        <p>ML-DSA-87 digital signatures and ML-KEM-1024 key encapsulation (NIST FIPS 203/204, security level 5). Select PQ algorithms per-cert or generate parallel classical + PQ keys.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128196;</span>
-        <h3>Paper Backups</h3>
-        <p>Barcode-based paper backup generation (QR, Aztec, PDF417) with multi-part splitting for disaster recovery. Print it, laminate it, lock it in a safe.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128230;</span>
-        <h3>Deployment Packages</h3>
-        <p>Automated classification of ceremony outputs into deployment-ready tar.gz archives &mdash; offline keys, online keys, public trust bundle.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128274;</span>
-        <h3>Memory Hardened</h3>
-        <p>All private keys encrypted in memory with ChaCha20-Poly1305 using an ephemeral vault key from OS CSPRNG. Memory pages mlock'd. Core dumps disabled. All sensitive memory zeroized on drop.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128272;</span>
-        <h3>Encrypted on Disk</h3>
-        <p>Private keys written with PKCS#8 + AES-256-CBC encryption via scrypt key derivation. Nothing leaves the binary unencrypted.</p>
-      </div>
-
-      <div class="feature-card">
-        <span class="icon">&#128273;</span>
-        <h3>Passphrase Vault</h3>
-        <p>After a ceremony, save all passphrases to an AES-256-GCM encrypted vault file for transfer to a password manager. Decrypt later with <code>vault-decrypt</code>.</p>
-      </div>
-
-    </div>
-  </div>
+<!-- WHAT YOU GET -->
+<section>
+  <h2>What you get</h2>
+  <p><strong>One binary, no dependencies.</strong>
+    It compiles to a static binary around 2MB. There is nothing to install, no
+    shared libraries to worry about, no OpenSSL version conflicts. Copy it to a
+    USB stick and run it on your airgapped ceremony machine.</p>
+  <p><strong>Config-driven hierarchies.</strong>
+    Describe your certs as a flat YAML list with parent references. The tool
+    topologically sorts them and generates certificates in the right order. You
+    can have as many tiers as you want: root, intermediate, sub-CA, leaf.</p>
+  <p><strong>Post-quantum cryptography.</strong>
+    Every cert can optionally generate ML-DSA-87 signing keys (NIST FIPS 204)
+    and ML-KEM-1024 encapsulation keys (NIST FIPS 203) alongside classical
+    RSA-4096 or Ed25519. This is a hybrid "and" model: both chains must verify.
+    Set <code>algorithm: ml_dsa_87</code> on any cert, or use
+    <code>parallel_keys</code> to generate both classical and PQ keys.</p>
+  <p><strong>Memory hardening.</strong>
+    Private keys live in a ChaCha20-Poly1305 encrypted vault in memory for
+    the entire ceremony. The vault key comes from the OS CSPRNG and never
+    touches disk. On Linux, memory is mlock'd and core dumps are disabled.
+    All sensitive buffers are zeroized on drop.</p>
+  <p><strong>Encrypted disk output.</strong>
+    Private keys hit disk encrypted with PKCS#8 + AES-256-CBC. You provide
+    passphrases interactively. Nothing is written in plaintext.</p>
+  <p><strong>Paper backups.</strong>
+    The tool generates a printable HTML file with QR codes encoding your private
+    keys. Large RSA keys get split across multiple QR codes. Each page includes
+    a SHA-256 fingerprint for verification after scanning. Print it, laminate it,
+    put it in a fireproof safe.</p>
+  <p><strong>Deployment packages.</strong>
+    After the ceremony, outputs are automatically classified: offline keys that
+    belong in a vault, deploy keys for your CI system, public certs for distribution.
+    Each classification gets its own tar.gz archive with a JSON manifest.</p>
+  <p><strong>Passphrase vault.</strong>
+    During a ceremony you type a lot of passphrases. The tool can encrypt them
+    all into a single AES-256-GCM vault file. Take it to a networked machine
+    later, run <code>vault-decrypt</code>, and transfer everything to 1Password.</p>
+  <p><strong>Airgap by design.</strong>
+    No network calls. No telemetry. No update checks. No DNS lookups. Nothing.
+    The binary embeds an encrypted copy of its own source code so you can
+    recompile it during key rotation without trusting anything off the machine.</p>
 </section>
 
-<!-- QUICK START -->
-<section id="quickstart">
-  <div class="container">
-    <h2>Quick Start</h2>
-    <p class="section-sub">From zero to a complete PKI in under five minutes.</p>
+<!-- GETTING STARTED -->
+<section id="start">
+  <h2>Getting started</h2>
 
-    <h4>1. Download the binary for your platform</h4>
-<pre><code><span class="cmt"># Linux x86_64</span>
-<span class="cmd">curl</span> <span class="flag">-LO</span> https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64
-<span class="cmd">chmod</span> <span class="flag">+x</span> hedonistic-pki-linux-x86_64</code></pre>
+  <h3>Install</h3>
+  <p>Grab a pre-built binary from the
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/releases/latest">latest release</a>:</p>
+<pre><code><span class="sh"># Pick your platform</span>
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-arm64
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-darwin-arm64
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-darwin-x86_64
 
-    <h4>2. Write your ceremony config</h4>
-<pre><code><span class="cmd">cat</span> <span class="flag">&gt;</span> ceremony.yaml <span class="flag">&lt;&lt;</span> <span class="str">'EOF'</span>
-<span class="val">name</span>: acme-pki
-<span class="val">organization</span>: <span class="str">"Acme Corp"</span>
+chmod +x hedonistic-pki-*
 
-<span class="val">passphrases</span>:
-  <span class="val">min_length</span>: <span class="str">16</span>
+<span class="sh"># Verify the download</span>
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64.sha512
+shasum -a 512 -c hedonistic-pki-linux-x86_64.sha512</code></pre>
 
-<span class="val">hierarchy</span>:
-  - <span class="val">name</span>: root-ca
-    <span class="val">cn</span>: <span class="str">"Acme Corp Root CA"</span>
-    <span class="val">cert_type</span>: root
-    <span class="val">algorithm</span>: rsa_4096
-    <span class="val">validity</span>:
-      <span class="val">years</span>: <span class="str">20</span>
-    <span class="val">offline</span>: <span class="kw">true</span>
-    <span class="val">subject</span>:
-      <span class="val">country</span>: US
-      <span class="val">organization</span>: <span class="str">"Acme Corp"</span>
-      <span class="val">organizational_unit</span>: <span class="str">"Certificate Authority"</span>
+  <p>Or build from source (requires Rust 1.93+):</p>
+<pre><code>git clone https://github.com/hedonistic-io/hedonistic-pki.git
+cd hedonistic-pki
+cargo build --release
+<span class="sh"># binary is at target/release/hedonistic-pki</span></code></pre>
 
-  - <span class="val">name</span>: intermediate-ca
-    <span class="val">cn</span>: <span class="str">"Acme Corp Intermediate CA"</span>
-    <span class="val">cert_type</span>: intermediate
-    <span class="val">parent</span>: root-ca
-    <span class="val">algorithm</span>: rsa_4096
-    <span class="val">validity</span>:
-      <span class="val">years</span>: <span class="str">10</span>
-    <span class="val">pathlen</span>: <span class="str">0</span>
-    <span class="val">subject</span>:
-      <span class="val">country</span>: US
-      <span class="val">organization</span>: <span class="str">"Acme Corp"</span>
-
-  - <span class="val">name</span>: code-signing
-    <span class="val">cn</span>: <span class="str">"Acme Corp Code Signing"</span>
-    <span class="val">cert_type</span>: leaf
-    <span class="val">parent</span>: intermediate-ca
-    <span class="val">algorithm</span>: rsa_4096
-    <span class="val">validity</span>:
-      <span class="val">years</span>: <span class="str">2</span>
-    <span class="val">extensions</span>:
-      <span class="val">extended_key_usage</span>: [codeSigning]
-    <span class="val">subject</span>:
-      <span class="val">organizational_unit</span>: Engineering
-<span class="str">EOF</span></code></pre>
-
-    <h4>3. Dry run to validate</h4>
-<pre><code><span class="cmd">./hedonistic-pki-linux-x86_64</span> ceremony <span class="flag">--config</span> ceremony.yaml <span class="flag">--dry-run</span></code></pre>
-
-    <h4>4. Run the ceremony</h4>
-<pre><code><span class="cmd">./hedonistic-pki-linux-x86_64</span> ceremony <span class="flag">--config</span> ceremony.yaml</code></pre>
-
-    <p>You will be prompted for passphrases interactively. The tool generates encrypted private keys, signed certificates, post-quantum keys, paper backups, and deployment archives &mdash; all in one pass.</p>
-
-  </div>
+  <h3>Your first ceremony</h3>
+  <p>
+    Start with a dry run. Write a ceremony config (or use the
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/examples/quickstart.yaml">quickstart example</a>)
+    and validate it:
+  </p>
+<pre><code>hedonistic-pki ceremony --config ceremony.yaml --dry-run</code></pre>
+  <p>
+    The dry run parses your config, validates parent references, checks for cycles,
+    and prints the generation plan without creating any keys. When it looks right:
+  </p>
+<pre><code>hedonistic-pki ceremony --config ceremony.yaml --output /mnt/usb/pki</code></pre>
+  <p>
+    You will be asked for passphrases. Certs that share a parent automatically
+    share a passphrase, so you type fewer passwords than you have certs. Certs
+    marked <code>no_passphrase: true</code> skip the prompt entirely.
+  </p>
+  <p>
+    When it finishes, you have a directory full of encrypted keys, signed
+    certificates, post-quantum key bundles, a paper backup HTML file, and
+    deployment archives. Copy the offline keys to cold storage. Deploy the
+    rest.
+  </p>
 </section>
 
-<!-- INSTALLATION -->
-<section id="installation" class="bg-alt">
-  <div class="container">
-    <h2>Installation</h2>
-    <p class="section-sub">Pre-built binaries or build from source &mdash; your choice.</p>
+<!-- COMMANDS -->
+<section id="commands">
+  <h2>Commands</h2>
 
-    <h3>GitHub Releases</h3>
-    <p>Pre-built static binaries for Linux (x86_64, aarch64) and macOS (Apple Silicon):</p>
-<pre><code><span class="cmt"># Linux x86_64</span>
-<span class="cmd">curl</span> <span class="flag">-LO</span> https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64
+  <h3>ceremony</h3>
+  <p>The main event. Reads your config and runs the whole ceremony.</p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--config, -c</code></td><td>required</td><td>Path to YAML or JSON ceremony config</td></tr>
+    <tr><td><code>--output, -o</code></td><td>from config</td><td>Override output directory</td></tr>
+    <tr><td><code>--no-paper-backup</code></td><td></td><td>Skip paper backup generation</td></tr>
+    <tr><td><code>--no-deploy</code></td><td></td><td>Skip deployment archive generation</td></tr>
+    <tr><td><code>--dry-run</code></td><td></td><td>Validate and preview without generating keys</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki ceremony --config ceremony.yaml
+hedonistic-pki ceremony --config ceremony.yaml --output /mnt/usb/pki
+hedonistic-pki ceremony --config ceremony.yaml --dry-run
+hedonistic-pki ceremony --config ceremony.yaml --no-paper-backup --no-deploy</code></pre>
 
-<span class="cmt"># Linux aarch64</span>
-<span class="cmd">curl</span> <span class="flag">-LO</span> https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-arm64
+  <h3>generate</h3>
+  <p>
+    Quick three-tier PKI without a config file. Generates a root CA, intermediate
+    CA, and code signing leaf with sensible defaults. Good for testing or simple
+    setups. Use <code>ceremony</code> for anything more complex.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--output, -o</code></td><td>required</td><td>Output directory</td></tr>
+    <tr><td><code>--min-passphrase-length</code></td><td>16</td><td>Minimum passphrase length</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki generate --output /mnt/usb/pki</code></pre>
 
-<span class="cmt"># macOS Apple Silicon</span>
-<span class="cmd">curl</span> <span class="flag">-LO</span> https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-darwin-arm64
-
-<span class="cmd">chmod</span> <span class="flag">+x</span> hedonistic-pki-*</code></pre>
-
-    <h4>SHA-512 Verification</h4>
-    <p>Each release includes a <code>SHA512SUMS</code> file. Verify after download:</p>
-<pre><code><span class="cmd">curl</span> <span class="flag">-LO</span> https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/SHA512SUMS
-<span class="cmd">sha512sum</span> <span class="flag">-c</span> SHA512SUMS</code></pre>
-
-    <h3>From Source</h3>
-    <p>Requires Rust 1.93+ (2024 edition):</p>
-<pre><code><span class="cmd">git</span> clone https://github.com/hedonistic-io/hedonistic-pki.git
-<span class="cmd">cd</span> hedonistic-pki
-<span class="cmd">cargo</span> build <span class="flag">--release</span>
-<span class="cmt"># Binary: target/release/hedonistic-pki</span></code></pre>
-
-    <h3>Cross-Compilation</h3>
-    <p>The included <code>build-linux.sh</code> handles cross-compilation to <code>x86_64-unknown-linux-gnu</code> from macOS:</p>
-<pre><code><span class="cmd">./build-linux.sh</span></code></pre>
-    <p>For other targets, use standard Rust cross-compilation:</p>
-<pre><code><span class="cmd">rustup</span> target add x86_64-unknown-linux-musl
-<span class="cmd">cargo</span> build <span class="flag">--release --target</span> x86_64-unknown-linux-musl</code></pre>
-
-  </div>
-</section>
-
-<!-- USAGE -->
-<section id="usage">
-  <div class="container">
-    <h2>Usage</h2>
-    <p class="section-sub">Complete command reference for every subcommand and flag.</p>
-
-    <!-- ceremony -->
-    <h3><code>hedonistic-pki ceremony</code></h3>
-    <p>The primary command. Reads a YAML or JSON config that describes your desired PKI hierarchy and executes the full ceremony: key generation, certificate signing, post-quantum key generation, paper backup, and deployment packaging.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--config</code></td><td>path</td><td>required</td><td>Path to the YAML or JSON ceremony configuration file</td></tr>
-      <tr><td><code>--output</code></td><td>path</td><td>from config</td><td>Override the output directory specified in the config</td></tr>
-      <tr><td><code>--paper-backup</code></td><td>flag</td><td>true</td><td>Generate paper backup HTML (default behavior)</td></tr>
-      <tr><td><code>--no-paper-backup</code></td><td>flag</td><td>&mdash;</td><td>Disable paper backup generation</td></tr>
-      <tr><td><code>--deploy</code></td><td>flag</td><td>true</td><td>Generate deployment archives (default behavior)</td></tr>
-      <tr><td><code>--no-deploy</code></td><td>flag</td><td>&mdash;</td><td>Disable deployment archive generation</td></tr>
-      <tr><td><code>--dry-run</code></td><td>flag</td><td>&mdash;</td><td>Validate config and show the planned hierarchy without executing</td></tr>
-    </table></div>
-
-<pre><code><span class="cmt"># Standard ceremony</span>
-<span class="cmd">hedonistic-pki</span> ceremony <span class="flag">--config</span> ceremony.yaml
-
-<span class="cmt"># Override output directory</span>
-<span class="cmd">hedonistic-pki</span> ceremony <span class="flag">--config</span> ceremony.yaml <span class="flag">--output</span> /mnt/usb/pki
-
-<span class="cmt"># Dry run</span>
-<span class="cmd">hedonistic-pki</span> ceremony <span class="flag">--config</span> ceremony.yaml <span class="flag">--dry-run</span>
-
-<span class="cmt"># No paper backup, no deployment archives</span>
-<span class="cmd">hedonistic-pki</span> ceremony <span class="flag">--config</span> ceremony.yaml <span class="flag">--no-paper-backup</span> <span class="flag">--no-deploy</span></code></pre>
-
-    <p>During the ceremony, you are prompted interactively for passphrases. Certs sharing the same parent are automatically grouped so you only enter one passphrase per group. Certs with <code>no_passphrase: true</code> are skipped. Passphrases are encrypted in the memory vault immediately after input.</p>
-
-    <!-- generate -->
-    <h3><code>hedonistic-pki generate</code></h3>
-    <p>Legacy command for simple three-tier PKI generation without a config file. Generates a Root CA, Intermediate CA, and Code Signing certificate with sensible defaults.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--output</code></td><td>path</td><td>required</td><td>Output directory for the PKI hierarchy</td></tr>
-      <tr><td><code>--min-passphrase-length</code></td><td>integer</td><td>16</td><td>Minimum passphrase length enforced during generation</td></tr>
-    </table></div>
-
-<pre><code><span class="cmd">hedonistic-pki</span> generate <span class="flag">--output</span> /mnt/usb/pki
-<span class="cmd">hedonistic-pki</span> generate <span class="flag">--output</span> /mnt/usb/pki <span class="flag">--min-passphrase-length</span> <span class="str">24</span></code></pre>
-
-    <h4>Output structure</h4>
-    <div class="tree">
-<pre>/mnt/usb/pki/
+  <p>This produces the following directory structure:</p>
+  <div class="tree">
+/mnt/usb/pki/
   root-ca/
-    root-ca.crt               <span class="cmt"># Root CA certificate (20yr, RSA-4096)</span>
-    root-ca.key               <span class="cmt"># Root CA private key (PKCS#8 encrypted)</span>
+    root-ca.crt                 20-year RSA-4096 root certificate
+    root-ca.key                 PKCS#8 encrypted private key
   intermediate-ca/
-    intermediate-ca.crt       <span class="cmt"># Intermediate CA certificate (10yr)</span>
-    intermediate-ca.key       <span class="cmt"># Intermediate CA private key (PKCS#8 encrypted)</span>
-    chain.crt                 <span class="cmt"># Full chain (intermediate + root)</span>
+    intermediate-ca.crt         10-year intermediate certificate
+    intermediate-ca.key         PKCS#8 encrypted private key
+    chain.crt                   full chain (intermediate + root)
   code-signing/
-    code-signing.crt          <span class="cmt"># Code signing certificate (2yr)</span>
-    code-signing.key          <span class="cmt"># Code signing private key (PKCS#8 encrypted)</span>
+    code-signing.crt            2-year code signing certificate
+    code-signing.key            PKCS#8 encrypted private key
   pq/
-    root-ca.vk                <span class="cmt"># ML-DSA-87 verification key</span>
-    root-ca.sk                <span class="cmt"># ML-DSA-87 signing key</span>
-    intermediate-ca.vk        <span class="cmt"># ML-DSA-87 verification key</span>
-    intermediate-ca.sk        <span class="cmt"># ML-DSA-87 signing key</span>
-    code-signing.vk           <span class="cmt"># ML-DSA-87 verification key</span>
-    code-signing.sk           <span class="cmt"># ML-DSA-87 signing key</span>
-    code-signing.ek           <span class="cmt"># ML-KEM-1024 encapsulation key</span>
-    code-signing.dk           <span class="cmt"># ML-KEM-1024 decapsulation key</span>
-    manifest.json             <span class="cmt"># PQ key manifest (hex-encoded public keys)</span>
-    *.endorsement.sig         <span class="cmt"># PQ cross-signing chain</span></pre>
-    </div>
-
-    <!-- rekey -->
-    <h3><code>hedonistic-pki rekey</code></h3>
-    <p>Generate a completely new PKI chain, revoke the old chain via CRL, and prepare a self-recompilation package so the binary can be rebuilt with the new CA embedded.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--old-pki</code></td><td>path</td><td>required</td><td>Path to the existing PKI directory to revoke</td></tr>
-      <tr><td><code>--output</code></td><td>path</td><td>required</td><td>Output directory for the new PKI chain</td></tr>
-      <tr><td><code>--min-passphrase-length</code></td><td>integer</td><td>16</td><td>Minimum passphrase length for the new chain</td></tr>
-    </table></div>
-
-<pre><code><span class="cmd">hedonistic-pki</span> rekey <span class="flag">--old-pki</span> /mnt/usb/pki <span class="flag">--output</span> /mnt/usb/pki-new</code></pre>
-
-    <p>This command generates a fresh PKI chain, creates a Certificate Revocation List (CRL) for the old chain, and extracts the embedded source code with a recompilation script. You will be prompted for the old Root CA passphrase (to sign the CRL) and three new passphrases for the replacement chain.</p>
-
-    <!-- paper-backup -->
-    <h3><code>hedonistic-pki paper-backup</code></h3>
-    <p>Generate a paper backup from an existing PKI directory. Produces an HTML document with barcodes encoding the private keys, suitable for printing and archival storage.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--pki-dir</code></td><td>path</td><td>required</td><td>Path to the PKI directory containing keys to back up</td></tr>
-      <tr><td><code>--output</code></td><td>path</td><td>auto</td><td>Custom output path for the backup HTML file</td></tr>
-    </table></div>
-
-<pre><code><span class="cmd">hedonistic-pki</span> paper-backup <span class="flag">--pki-dir</span> /mnt/usb/pki
-<span class="cmd">hedonistic-pki</span> paper-backup <span class="flag">--pki-dir</span> /mnt/usb/pki <span class="flag">--output</span> backup.html</code></pre>
-
-    <!-- vault-decrypt -->
-    <h3><code>hedonistic-pki vault-decrypt</code></h3>
-    <p>Decrypt an offline passphrase vault and display all stored passphrases. After a ceremony, copy the <code>ceremony-vault.enc</code> file to a networked machine and use this command to transfer passphrases into 1Password or another password manager.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--vault</code></td><td>path</td><td>required</td><td>Path to the encrypted vault file (e.g., <code>ceremony-vault.enc</code>)</td></tr>
-    </table></div>
-
-<pre><code><span class="cmd">hedonistic-pki</span> vault-decrypt <span class="flag">--vault</span> ./pki/ceremony-vault.enc</code></pre>
-
-    <p>You will be prompted for the master password you set during the ceremony. Passphrases are printed to stderr. Clear your terminal history afterward and securely delete the vault file:</p>
-<pre><code><span class="cmd">shred</span> <span class="flag">-u</span> ceremony-vault.enc   <span class="cmt"># Linux</span></code></pre>
-
-    <!-- extract-source -->
-    <h3><code>hedonistic-pki extract-source</code></h3>
-    <p>Extract the encrypted source code embedded in the binary. Useful for auditing or recompilation.</p>
-
-    <div class="table-wrap"><table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>--output</code></td><td>path</td><td>required</td><td>Directory to extract the source code into</td></tr>
-      <tr><td><code>--key</code></td><td>path</td><td>required</td><td>Path to the code signing private key for decryption</td></tr>
-    </table></div>
-
-<pre><code><span class="cmd">hedonistic-pki</span> extract-source <span class="flag">--output</span> ./source <span class="flag">--key</span> /mnt/usb/pki/code-signing/code-signing.key</code></pre>
-
-    <!-- verify -->
-    <h3><code>hedonistic-pki verify</code></h3>
-    <p>Display binary metadata and provide instructions for verifying the binary's CMS signature against the certificate chain. Takes no flags.</p>
-
-<pre><code><span class="cmd">hedonistic-pki</span> verify</code></pre>
-
+    root-ca.vk / .sk            ML-DSA-87 verification/signing keys
+    intermediate-ca.vk / .sk    ML-DSA-87 verification/signing keys
+    code-signing.vk / .sk       ML-DSA-87 verification/signing keys
+    code-signing.ek / .dk       ML-KEM-1024 encapsulation/decapsulation keys
+    manifest.json               PQ key manifest with hex-encoded public keys
+    *.endorsement.sig           PQ cross-signing chain
   </div>
+
+  <h3>rekey</h3>
+  <p>
+    Rotate your PKI. Generates a fresh chain, creates a CRL revoking the old
+    intermediate, and extracts the embedded source so you can recompile the binary
+    with the new CA. You need the old root CA passphrase (for the CRL) and three
+    new passphrases.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--old-pki</code></td><td>required</td><td>Existing PKI directory to revoke</td></tr>
+    <tr><td><code>--output, -o</code></td><td>required</td><td>Output directory for the new chain</td></tr>
+    <tr><td><code>--min-passphrase-length</code></td><td>16</td><td>Minimum passphrase length for new keys</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki rekey --old-pki /mnt/usb/pki --output /mnt/usb/pki-v2</code></pre>
+
+  <h3>paper-backup</h3>
+  <p>
+    Generate a paper backup from an existing PKI directory. Scans for private
+    keys and produces a printable HTML file with QR-encoded key material.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir, -p</code></td><td>required</td><td>PKI directory to scan for keys</td></tr>
+    <tr><td><code>--output, -o</code></td><td>auto</td><td>Output HTML file path</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki paper-backup --pki-dir /mnt/usb/pki</code></pre>
+
+  <h3>vault-decrypt</h3>
+  <p>
+    Decrypt a ceremony passphrase vault. After a ceremony, you might have saved
+    all your passphrases into an encrypted vault file. Take that file to a
+    networked machine and use this command to get them into your password manager.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--vault</code></td><td>required</td><td>Path to encrypted vault file</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc
+<span class="sh"># passphrases print to stderr</span>
+<span class="sh"># after transferring to 1Password:</span>
+shred -u ceremony-vault.enc</code></pre>
+
+  <h3>extract-source</h3>
+  <p>
+    Pull the encrypted source code out of the binary. The source is embedded at
+    compile time for self-recompilation during rekey.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--output, -o</code></td><td>required</td><td>Directory for the extracted source archive</td></tr>
+    <tr><td><code>--key</code></td><td>required</td><td>Code signing private key for decryption</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki extract-source --output ./source --key ./pki/code-signing/code-signing.key</code></pre>
+
+  <h3>verify</h3>
+  <p>
+    Print build information and instructions for verifying the binary's CMS
+    signature. No flags.
+  </p>
+<pre><code>hedonistic-pki verify</code></pre>
 </section>
 
-<!-- CONFIGURATION REFERENCE -->
-<section id="configuration" class="bg-alt">
-  <div class="container">
-    <h2>Configuration Reference</h2>
-    <p class="section-sub">The ceremony config file is YAML or JSON. Every field is documented below.</p>
+<!-- CONFIG REFERENCE -->
+<section id="config">
+  <h2>Configuration reference</h2>
+  <p>
+    The ceremony config is a YAML or JSON file. Here is every field. If you want
+    a working example instead of a reference table, look at
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/examples/quickstart.yaml">examples/quickstart.yaml</a>.
+  </p>
 
-    <!-- CeremonyConfig -->
-    <h3>Top-Level Fields (<code>CeremonyConfig</code>)</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>name</code></td><td>string</td><td>yes</td><td>&mdash;</td><td>Internal name for this ceremony</td></tr>
-      <tr><td><code>organization</code></td><td>string</td><td>yes</td><td>&mdash;</td><td>Organization name embedded in certificate subjects</td></tr>
-      <tr><td><code>output_dir</code></td><td>string</td><td>no</td><td>null</td><td>Base output directory (overridable via <code>--output</code> CLI flag)</td></tr>
-      <tr><td><code>passphrases</code></td><td>object</td><td>no</td><td>see below</td><td>Passphrase policy settings</td></tr>
-      <tr><td><code>hierarchy</code></td><td>array</td><td>yes</td><td>&mdash;</td><td>Flat list of certificate specs (see CertSpec below)</td></tr>
-      <tr><td><code>paper_backup</code></td><td>object</td><td>no</td><td>null</td><td>Paper backup settings</td></tr>
-      <tr><td><code>deployment</code></td><td>object</td><td>no</td><td>null</td><td>Deployment archive settings</td></tr>
-    </table></div>
+  <h3>Top-level fields</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Required</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>name</code></td><td>string</td><td>yes</td><td></td><td>Internal name for this ceremony</td></tr>
+    <tr><td><code>organization</code></td><td>string</td><td>yes</td><td></td><td>Organization name for certificate subjects</td></tr>
+    <tr><td><code>output_dir</code></td><td>string</td><td>no</td><td>null</td><td>Output directory (overridable with <code>--output</code>)</td></tr>
+    <tr><td><code>passphrases</code></td><td>object</td><td>no</td><td></td><td>Passphrase policy (see below)</td></tr>
+    <tr><td><code>hierarchy</code></td><td>array</td><td>yes</td><td></td><td>List of certificate specs</td></tr>
+    <tr><td><code>paper_backup</code></td><td>object</td><td>no</td><td>null</td><td>Paper backup options</td></tr>
+    <tr><td><code>deployment</code></td><td>object</td><td>no</td><td>null</td><td>Deployment archive options</td></tr>
+  </table></div>
 
-    <!-- PassphraseConfig -->
-    <h3>Passphrase Config (<code>passphrases</code>)</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>min_length</code></td><td>integer</td><td>16</td><td>Minimum passphrase length enforced during ceremony</td></tr>
-      <tr><td><code>manager_hint</code></td><td>string</td><td>null</td><td>Hint displayed during passphrase prompts (e.g., "use 1Password")</td></tr>
-    </table></div>
+  <h3>passphrases</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>min_length</code></td><td>integer</td><td>16</td><td>Minimum passphrase length enforced during the ceremony</td></tr>
+    <tr><td><code>manager_hint</code></td><td>string</td><td>null</td><td>Text shown during prompts, e.g. "use 1Password"</td></tr>
+  </table></div>
 
-    <!-- CertSpec -->
-    <h3>Certificate Spec (<code>CertSpec</code>) &mdash; entries in <code>hierarchy</code></h3>
-    <p>Each entry in the <code>hierarchy</code> array describes one certificate:</p>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>name</code></td><td>string</td><td>yes</td><td>&mdash;</td><td>Internal identifier, used as parent reference by children</td></tr>
-      <tr><td><code>cn</code></td><td>string</td><td>yes</td><td>&mdash;</td><td>Common Name for the X.509 subject</td></tr>
-      <tr><td><code>cert_type</code></td><td>enum</td><td>yes</td><td>&mdash;</td><td>One of: <code>root</code>, <code>intermediate</code>, <code>sub_ca</code>, <code>leaf</code></td></tr>
-      <tr><td><code>parent</code></td><td>string</td><td>no</td><td>null</td><td><code>name</code> of the parent CA. Required for non-root types. Roots must not have a parent.</td></tr>
-      <tr><td><code>algorithm</code></td><td>enum</td><td>no</td><td>rsa_4096</td><td>Key algorithm: <code>rsa_4096</code>, <code>ed25519</code>, <code>ml_dsa_87</code>, <code>ml_kem_1024</code></td></tr>
-      <tr><td><code>hash</code></td><td>enum</td><td>no</td><td>null</td><td>Hash algorithm: <code>sha256</code>, <code>sha384</code>, <code>sha512</code></td></tr>
-      <tr><td><code>validity</code></td><td>object</td><td>yes</td><td>&mdash;</td><td>Must contain <code>years</code> (integer) and/or <code>days</code> (integer)</td></tr>
-      <tr><td><code>pathlen</code></td><td>integer</td><td>no</td><td>null</td><td>X.509 path length constraint. Only valid on CA types.</td></tr>
-      <tr><td><code>offline</code></td><td>boolean</td><td>no</td><td>false</td><td>Mark cert as offline (affects passphrase grouping and deployment classification)</td></tr>
-      <tr><td><code>no_passphrase</code></td><td>boolean</td><td>no</td><td>false</td><td>Skip passphrase for this key (e.g., CI/CD service keys)</td></tr>
-      <tr><td><code>parallel_keys</code></td><td>array</td><td>no</td><td>[]</td><td>Additional algorithms to generate alongside the primary (e.g., <code>[ed25519, ml_dsa_87]</code>)</td></tr>
-      <tr><td><code>extensions</code></td><td>object</td><td>no</td><td>null</td><td>X.509 extension overrides</td></tr>
-      <tr><td><code>subject</code></td><td>object</td><td>no</td><td>null</td><td>Additional X.509 subject fields</td></tr>
-      <tr><td><code>tags</code></td><td>array</td><td>no</td><td>[]</td><td>Arbitrary string tags for metadata</td></tr>
-      <tr><td><code>deploy_to</code></td><td>string</td><td>no</td><td>null</td><td>Deployment target hint (e.g., <code>github-actions</code>)</td></tr>
-    </table></div>
+  <h3>hierarchy entries (CertSpec)</h3>
+  <p>
+    Each entry in the <code>hierarchy</code> array describes one certificate.
+    You reference parents by <code>name</code>. The tool figures out the order.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Required</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>name</code></td><td>string</td><td>yes</td><td></td><td>Identifier. Children reference this as their <code>parent</code>.</td></tr>
+    <tr><td><code>cn</code></td><td>string</td><td>yes</td><td></td><td>Common Name for the X.509 subject</td></tr>
+    <tr><td><code>cert_type</code></td><td>enum</td><td>yes</td><td></td><td><code>root</code>, <code>intermediate</code>, <code>sub_ca</code>, or <code>leaf</code></td></tr>
+    <tr><td><code>parent</code></td><td>string</td><td>non-root: yes</td><td>null</td><td>Name of the signing CA. Roots must not set this.</td></tr>
+    <tr><td><code>algorithm</code></td><td>enum</td><td>no</td><td>rsa_4096</td><td><code>rsa_4096</code>, <code>ed25519</code>, <code>ml_dsa_87</code>, <code>ml_kem_1024</code></td></tr>
+    <tr><td><code>hash</code></td><td>enum</td><td>no</td><td>null</td><td><code>sha256</code>, <code>sha384</code>, <code>sha512</code></td></tr>
+    <tr><td><code>validity</code></td><td>object</td><td>yes</td><td></td><td><code>years</code> and/or <code>days</code> as integers</td></tr>
+    <tr><td><code>pathlen</code></td><td>integer</td><td>no</td><td>null</td><td>X.509 path length constraint. CAs only.</td></tr>
+    <tr><td><code>offline</code></td><td>boolean</td><td>no</td><td>false</td><td>Marks this cert for offline storage in deployment classification</td></tr>
+    <tr><td><code>no_passphrase</code></td><td>boolean</td><td>no</td><td>false</td><td>Skip passphrase prompt (for CI/CD service keys)</td></tr>
+    <tr><td><code>parallel_keys</code></td><td>array</td><td>no</td><td>[]</td><td>Extra algorithms to generate alongside primary, e.g. <code>[ed25519, ml_dsa_87]</code></td></tr>
+    <tr><td><code>extensions</code></td><td>object</td><td>no</td><td>null</td><td>X.509 extension overrides (see below)</td></tr>
+    <tr><td><code>subject</code></td><td>object</td><td>no</td><td>null</td><td>Extra subject fields (see below)</td></tr>
+    <tr><td><code>tags</code></td><td>array</td><td>no</td><td>[]</td><td>Arbitrary metadata tags</td></tr>
+    <tr><td><code>deploy_to</code></td><td>string</td><td>no</td><td>null</td><td>Deployment target hint, e.g. <code>github-actions</code></td></tr>
+  </table></div>
 
-    <!-- ExtensionSpec -->
-    <h3>Extension Spec (<code>extensions</code>)</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>key_usage</code></td><td>array</td><td>[]</td><td>X.509 Key Usage values (e.g., <code>[keyCertSign, cRLSign]</code>)</td></tr>
-      <tr><td><code>extended_key_usage</code></td><td>array</td><td>[]</td><td>Extended Key Usage values (e.g., <code>[codeSigning, serverAuth, clientAuth]</code>)</td></tr>
-      <tr><td><code>basic_constraints_ca</code></td><td>boolean</td><td>null</td><td>Explicit CA flag override</td></tr>
-    </table></div>
+  <h3>extensions</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>key_usage</code></td><td>array</td><td>[]</td><td>X.509 Key Usage, e.g. <code>[keyCertSign, cRLSign]</code></td></tr>
+    <tr><td><code>extended_key_usage</code></td><td>array</td><td>[]</td><td>EKU, e.g. <code>[codeSigning, serverAuth, clientAuth]</code></td></tr>
+    <tr><td><code>basic_constraints_ca</code></td><td>boolean</td><td>null</td><td>Explicit CA flag override</td></tr>
+  </table></div>
 
-    <!-- SubjectSpec -->
-    <h3>Subject Spec (<code>subject</code>)</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>country</code></td><td>string</td><td>null</td><td>Two-letter country code</td></tr>
-      <tr><td><code>organization</code></td><td>string</td><td>null</td><td>Organization name (overrides top-level <code>organization</code> for this cert)</td></tr>
-      <tr><td><code>organizational_unit</code></td><td>string</td><td>null</td><td>Organizational unit</td></tr>
-    </table></div>
+  <h3>subject</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>country</code></td><td>string</td><td>null</td><td>Two-letter country code</td></tr>
+    <tr><td><code>organization</code></td><td>string</td><td>null</td><td>Overrides top-level <code>organization</code> for this cert</td></tr>
+    <tr><td><code>organizational_unit</code></td><td>string</td><td>null</td><td>Organizational unit</td></tr>
+  </table></div>
 
-    <!-- PaperBackupConfig -->
-    <h3>Paper Backup Config (<code>paper_backup</code>)</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-      <tr><td><code>formats</code></td><td>array</td><td>[]</td><td>Barcode formats to generate: <code>qr</code>, <code>aztec</code>, <code>pdf417</code></td></tr>
-      <tr><td><code>output</code></td><td>string</td><td>"html"</td><td>Output format identifier</td></tr>
-      <tr><td><code>include_pem</code></td><td>boolean</td><td>true</td><td>Include PEM-encoded key text alongside barcodes</td></tr>
-    </table></div>
+  <h3>paper_backup</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>What it does</th></tr>
+    <tr><td><code>formats</code></td><td>array</td><td>[]</td><td>Barcode formats: <code>qr</code>, <code>aztec</code>, <code>pdf417</code></td></tr>
+    <tr><td><code>output</code></td><td>string</td><td>"html"</td><td>Output format</td></tr>
+    <tr><td><code>include_pem</code></td><td>boolean</td><td>true</td><td>Print PEM text alongside barcodes</td></tr>
+  </table></div>
 
-    <!-- DeploymentConfig -->
-    <h3>Deployment Config (<code>deployment</code>)</h3>
-    <p>The <code>deployment</code> object contains a <code>packages</code> array. Each package becomes a <code>deploy/&lt;name&gt;.tar.gz</code> archive.</p>
-    <div class="table-wrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-      <tr><td><code>name</code></td><td>string</td><td>Archive name (produces <code>deploy/&lt;name&gt;.tar.gz</code>)</td></tr>
-      <tr><td><code>target</code></td><td>string</td><td>Target directory path for the archive</td></tr>
-      <tr><td><code>patterns</code></td><td>array</td><td>Glob patterns for files to include (e.g., <code>["*.crt", "*.pub"]</code>)</td></tr>
-    </table></div>
+  <h3>deployment</h3>
+  <p>
+    The <code>deployment.packages</code> array defines which files go into which
+    archive:
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Type</th><th>What it does</th></tr>
+    <tr><td><code>name</code></td><td>string</td><td>Archive name (produces <code>deploy/&lt;name&gt;.tar.gz</code>)</td></tr>
+    <tr><td><code>target</code></td><td>string</td><td>Target directory path</td></tr>
+    <tr><td><code>patterns</code></td><td>array</td><td>Glob patterns for files to include</td></tr>
+  </table></div>
 
-    <!-- PQ per-cert -->
-    <h3>Post-Quantum Per-Cert Selection</h3>
-    <p>There is no top-level post-quantum configuration block. PQ algorithms are selected per-cert via the <code>algorithm</code> field:</p>
-<pre><code><span class="val">hierarchy</span>:
-  - <span class="val">name</span>: pq-signer
-    <span class="val">cn</span>: <span class="str">"PQ Code Signer"</span>
-    <span class="val">cert_type</span>: leaf
-    <span class="val">parent</span>: intermediate-ca
-    <span class="val">algorithm</span>: ml_dsa_87
-    <span class="val">validity</span>:
-      <span class="val">years</span>: <span class="str">2</span></code></pre>
+  <h3>Post-quantum selection</h3>
+  <p>
+    There is no top-level PQ config block. You choose algorithms per cert.
+    To get both classical and PQ keys for the same cert, use <code>parallel_keys</code>:
+  </p>
+<pre><code>- name: hybrid-root
+  cn: "Hybrid Root CA"
+  cert_type: root
+  algorithm: rsa_4096
+  validity:
+    years: 20
+  parallel_keys:
+    - ed25519
+    - ml_dsa_87</code></pre>
 
-    <p>To generate both classical and PQ keys for the same cert, use <code>parallel_keys</code>:</p>
-<pre><code><span class="val">hierarchy</span>:
-  - <span class="val">name</span>: hybrid-root
-    <span class="val">cn</span>: <span class="str">"Hybrid Root CA"</span>
-    <span class="val">cert_type</span>: root
-    <span class="val">algorithm</span>: rsa_4096
-    <span class="val">validity</span>:
-      <span class="val">years</span>: <span class="str">20</span>
-    <span class="val">parallel_keys</span>:
-      - ed25519
-      - ml_dsa_87</code></pre>
-
-    <!-- Passphrase grouping -->
-    <h3>Passphrase Grouping Rules</h3>
-    <p>Passphrase grouping is automatic &mdash; there is no config field for it. The rules are:</p>
-    <ul>
-      <li>Certs with <code>no_passphrase: true</code> get no passphrase</li>
-      <li>Each root CA gets its own passphrase</li>
-      <li>Non-root certs sharing the same parent share a passphrase</li>
-    </ul>
-    <p>This means you are prompted once per root CA and once per group of siblings, rather than once per cert.</p>
-
-    <!-- Full example -->
-    <h3>Full Example</h3>
-    <p>See <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/examples/quickstart.yaml"><code>examples/quickstart.yaml</code></a> in the repository for a complete working config.</p>
-
-  </div>
+  <h3>Passphrase grouping</h3>
+  <p>
+    Passphrases are grouped automatically. There is no config field for it.
+    The rules are simple: each root CA gets its own passphrase.
+    Non-root certs that share the same parent share a passphrase.
+    Certs with <code>no_passphrase: true</code> get nothing.
+  </p>
 </section>
 
-<!-- SECURITY ARCHITECTURE -->
+<!-- SECURITY -->
 <section id="security">
-  <div class="container">
-    <h2>Security Architecture</h2>
-    <p class="section-sub">Defense in depth: every layer protects private key material.</p>
+  <h2>How it protects your keys</h2>
 
-    <h3>Memory Vault</h3>
-    <p>All private key material is encrypted in memory immediately after generation. The vault uses <strong>ChaCha20-Poly1305</strong> with a 256-bit ephemeral key sourced from the OS CSPRNG (<code>getrandom</code>). The vault key exists only in process memory and is never written to disk.</p>
-    <p>When a key needs to be used (e.g., to sign a child certificate), it is decrypted into a <code>Zeroizing&lt;Vec&lt;u8&gt;&gt;</code> buffer, used, and immediately zeroized. At no point do plaintext private keys exist in unprotected memory.</p>
+  <h3>In memory</h3>
+  <p>
+    Every private key generated during a ceremony is immediately encrypted with
+    ChaCha20-Poly1305 using a 256-bit key from the OS CSPRNG. That vault key
+    exists only in process memory and is never serialized. When a key needs to
+    sign a child certificate, it is decrypted into a <code>Zeroizing&lt;Vec&lt;u8&gt;&gt;</code>
+    buffer, used, and wiped. Plaintext private keys do not persist in unprotected
+    memory at any point during the ceremony.
+  </p>
 
-    <h3>Platform Hardening (Linux)</h3>
-    <p>On Linux targets, the binary applies additional protections at startup:</p>
-    <ul>
-      <li><strong>mlock</strong>: All current and future memory pages are locked (<code>mlockall</code>), preventing the kernel from swapping sensitive data to disk.</li>
-      <li><strong>Core dumps disabled</strong>: <code>prctl(PR_SET_DUMPABLE, 0)</code> prevents core dumps that could contain key material.</li>
-      <li><strong>panic=abort</strong>: The binary aborts on panic rather than unwinding the stack, preventing stack traces from leaking sensitive data.</li>
-    </ul>
-    <p>On non-Linux platforms, these protections are noted as unavailable but the vault encryption and zeroization still apply.</p>
+  <h3>On Linux</h3>
+  <p>
+    At startup, the binary calls <code>mlockall</code> to prevent the kernel from
+    swapping any memory pages to disk. It sets <code>PR_SET_DUMPABLE</code> to zero
+    so core dumps cannot leak key material. The release binary is compiled with
+    <code>panic=abort</code> to prevent stack unwinding from exposing data.
+  </p>
+  <p>
+    On macOS and other platforms, the vault encryption and zeroization still apply
+    but the OS-level hardening is not available.
+  </p>
 
-    <h3>Post-Quantum Cryptography</h3>
-    <p>The tool generates post-quantum keys using NIST-standardized algorithms:</p>
-    <ul>
-      <li><strong>ML-DSA-87</strong> (FIPS 204, formerly Dilithium): Digital signatures at security level 5. Used to sign the PQ endorsement chain that parallels the classical X.509 chain.</li>
-      <li><strong>ML-KEM-1024</strong> (FIPS 203, formerly Kyber): Key encapsulation at security level 5. Generated for code signing leaves to enable post-quantum encrypted distribution channels.</li>
-    </ul>
-    <p>The classical and post-quantum chains are independent but cross-signed. Verification requires both chains to validate &mdash; this is a hybrid "and" model, not "or".</p>
+  <h3>On disk</h3>
+  <p>
+    Private keys are written encrypted with PKCS#8 + AES-256-CBC. The passphrase
+    you provide during the ceremony is the decryption key. If OpenSSL is not
+    available (which is fine, the tool does not require it), keys are written with
+    restrictive file permissions as a fallback.
+  </p>
 
-    <h3>Disk Encryption</h3>
-    <p>Private keys are encrypted before writing to disk using <strong>PKCS#8 with AES-256-CBC</strong> key derivation via scrypt. The passphrase you provide during the ceremony is the only way to decrypt the keys. If OpenSSL is not available on the system, keys are written with restrictive file permissions (<code>0400</code>) as a fallback, and a warning is printed.</p>
+  <h3>Post-quantum</h3>
+  <p>
+    The tool generates post-quantum keys using the NIST-standardized algorithms
+    from FIPS 203 and FIPS 204. ML-DSA-87 (formerly Dilithium) provides digital
+    signatures at security level 5. ML-KEM-1024 (formerly Kyber) provides key
+    encapsulation at the same level. The classical X.509 chain and the PQ
+    endorsement chain are independent but cross-signed. Verification requires
+    both to pass.
+  </p>
 
-    <h3>Embedded Source</h3>
-    <p>The binary embeds an encrypted copy of its own source code, signed with the code signing certificate. This allows the binary to be recompiled with a new CA during rekey ceremonies without needing to trust an external source archive.</p>
+  <h3>Embedded source</h3>
+  <p>
+    The binary contains an encrypted copy of its own source code, signed with the
+    code signing certificate. During a rekey ceremony, it extracts this source and
+    writes a recompilation script so you can rebuild the binary with the new CA
+    without fetching anything from the network.
+  </p>
 
-  </div>
+  <h3>Paper backups</h3>
+  <p>
+    Paper backup HTML files contain one page per key. Each page has the certificate
+    name, generation timestamp, SHA-256 fingerprint, a QR code (or multiple QR
+    codes for large RSA keys), and the raw PEM text as a fallback. To reconstruct:
+    scan all QR parts for a key, concatenate them, verify the SHA-256 checksum
+    printed on the page, and you have the PEM-encoded private key.
+  </p>
 </section>
 
-<!-- PAPER BACKUP FORMAT -->
-<section id="paper-backup" class="bg-alt">
-  <div class="container">
-    <h2>Paper Backup Format</h2>
-    <p class="section-sub">Physical disaster recovery for your most critical keys.</p>
-
-    <p>Paper backups are generated as self-contained HTML files designed for printing. Each page contains:</p>
-    <ol>
-      <li><strong>Header</strong>: Certificate name, generation timestamp, key fingerprint</li>
-      <li><strong>Barcode</strong>: The private key material encoded as a barcode (QR, Aztec, or PDF417)</li>
-      <li><strong>PEM Text</strong>: The full PEM-encoded key printed below the barcode as a fallback (when <code>include_pem</code> is true)</li>
-      <li><strong>Reconstruction Instructions</strong>: Step-by-step procedure printed on each page</li>
-    </ol>
-
-    <h3>Multi-Part Splitting</h3>
-    <p>When multiple formats are specified in <code>paper_backup.formats</code>, each key gets a barcode in each requested format. Keys are split across multiple barcodes when they exceed a single barcode's capacity. Each part is labeled (e.g., "Part 1 of 3") and includes a SHA-256 checksum of the complete key for verification after reassembly.</p>
-
-    <h3>Reconstruction Procedure</h3>
-    <ol>
-      <li>Scan all barcode parts for a given key</li>
-      <li>Concatenate the parts in order</li>
-      <li>Verify the SHA-256 checksum matches the value printed on each page</li>
-      <li>The result is the PEM-encoded private key</li>
-    </ol>
-    <p>If barcode scanning fails, manually type the PEM text from the printed backup.</p>
-
-  </div>
-</section>
-
-<!-- BUILDING FROM SOURCE -->
-<section id="building">
-  <div class="container">
-    <h2>Building from Source</h2>
-    <p class="section-sub">Compile it yourself for maximum trust.</p>
-
-    <h3>Prerequisites</h3>
-    <ul>
-      <li>Rust 1.93+ (2024 edition)</li>
-      <li>No system dependencies required for the build itself</li>
-    </ul>
-
-    <h3>Debug Build</h3>
-<pre><code><span class="cmd">cargo</span> build</code></pre>
-
-    <h3>Release Build</h3>
-<pre><code><span class="cmd">cargo</span> build <span class="flag">--release</span></code></pre>
-    <p>The release profile is optimized for size (<code>opt-level = "z"</code>) with LTO enabled, single codegen unit, symbols stripped, and <code>panic=abort</code>.</p>
-
-    <h3>Cross-Compilation</h3>
-    <p>The included <code>build-linux.sh</code> script handles cross-compilation to <code>x86_64-unknown-linux-gnu</code> from macOS:</p>
-<pre><code><span class="cmd">./build-linux.sh</span></code></pre>
-    <p>For other targets, use standard Rust cross-compilation:</p>
-<pre><code><span class="cmd">rustup</span> target add x86_64-unknown-linux-musl
-<span class="cmd">cargo</span> build <span class="flag">--release --target</span> x86_64-unknown-linux-musl</code></pre>
-
-    <h3>Build Script</h3>
-    <p>The <code>build.rs</code> script handles embedding the encrypted source archive into the binary. It compresses and encrypts the <code>src/</code> directory at compile time so that the binary is self-contained for rekey operations.</p>
-
-  </div>
+<!-- BUILDING -->
+<section>
+  <h2>Building from source</h2>
+  <p>You need Rust 1.93 or later. The repo pins the toolchain in <code>rust-toolchain.toml</code>.</p>
+<pre><code>cargo build            <span class="sh"># debug build</span>
+cargo build --release  <span class="sh"># optimized, ~2MB binary</span>
+cargo test             <span class="sh"># 99 tests</span></code></pre>
+  <p>
+    The release profile uses <code>opt-level = "z"</code> (size optimization), LTO,
+    single codegen unit, stripped symbols, and <code>panic=abort</code>.
+  </p>
+  <p>
+    Cross-compilation works with standard Rust targets. There is a
+    <code>build-linux.sh</code> script for building Linux binaries from macOS.
+  </p>
+  <p>
+    The <code>build.rs</code> script handles embedding the encrypted source
+    archive. It compresses <code>src/</code> at compile time so the binary is
+    self-contained for rekey operations.
+  </p>
 </section>
 
 <!-- CONTRIBUTING -->
-<section id="contributing" class="bg-alt">
-  <div class="container">
-    <h2>Contributing</h2>
-    <p class="section-sub">We welcome contributions to hedonistic-pki.</p>
+<section id="contribute">
+  <h2>Contributing</h2>
+  <p>
+    Contributions are welcome. The project is Apache-2.0 licensed. No CLA.
+  </p>
+  <p>
+    Fork the repo, make your changes on a branch, and open a pull request. Before
+    submitting, make sure these pass:
+  </p>
+<pre><code>cargo fmt --check
+cargo clippy -- -D warnings
+cargo test</code></pre>
+  <p>
+    Use conventional commit messages: <code>feat:</code>, <code>fix:</code>,
+    <code>refactor:</code>, <code>test:</code>, <code>docs:</code>. Keep
+    commits atomic. One logical change per commit.
+  </p>
 
-    <h3>Development Setup</h3>
-    <ol>
-      <li>Install Rust via <a href="https://rustup.rs/">rustup</a> (the repo pins the toolchain in <code>rust-toolchain.toml</code>).</li>
-      <li>Clone the repository and build:
-<pre><code><span class="cmd">git</span> clone https://github.com/hedonistic-io/hedonistic-pki.git
-<span class="cmd">cd</span> hedonistic-pki
-<span class="cmd">cargo</span> build</code></pre>
-      </li>
-      <li>Run the test suite:
-<pre><code><span class="cmd">cargo</span> test</code></pre>
-      </li>
-    </ol>
+  <h3>Codebase layout</h3>
+  <div class="tbl"><table>
+    <tr><th>File</th><th>What it does</th></tr>
+    <tr><td><code>main.rs</code></td><td>CLI entry point and command dispatch (clap)</td></tr>
+    <tr><td><code>ceremony.rs</code></td><td>Config-driven ceremony orchestrator</td></tr>
+    <tr><td><code>certgen.rs</code></td><td>X.509 certificate generation (RSA-4096, Ed25519)</td></tr>
+    <tr><td><code>config.rs</code></td><td>YAML/JSON config parsing, validation, topological sort</td></tr>
+    <tr><td><code>deploy.rs</code></td><td>File classification and deployment archive generation</td></tr>
+    <tr><td><code>ed25519_keys.rs</code></td><td>Pure-Rust Ed25519 key utilities via ed25519-dalek</td></tr>
+    <tr><td><code>paper.rs</code></td><td>Paper backup HTML generation with QR codes</td></tr>
+    <tr><td><code>pq.rs</code></td><td>Post-quantum keys (ML-DSA-87, ML-KEM-1024)</td></tr>
+    <tr><td><code>vault.rs</code></td><td>In-memory encrypted vault and passphrase vault</td></tr>
+  </table></div>
+  <p>
+    New features usually belong in an existing module. If you think you need a
+    new one, open an issue first so we can talk about it.
+  </p>
 
-    <h3>Pull Request Process</h3>
-    <ol>
-      <li>Fork the repository and create a feature branch from <code>main</code>.</li>
-      <li>Make your changes in focused, atomic commits using conventional commit messages (<code>feat:</code>, <code>fix:</code>, <code>refactor:</code>, <code>test:</code>, <code>docs:</code>, <code>chore:</code>).</li>
-      <li>Ensure all checks pass:
-<pre><code><span class="cmd">cargo</span> fmt <span class="flag">--check</span>
-<span class="cmd">cargo</span> clippy <span class="flag">--</span> <span class="flag">-D warnings</span>
-<span class="cmd">cargo</span> test</code></pre>
-      </li>
-      <li>Open a pull request against <code>main</code> with a clear description.</li>
-      <li>A maintainer will review your PR. Expect at least one round of feedback.</li>
-    </ol>
-
-    <h3>Code Style</h3>
-    <ul>
-      <li>Run <code>cargo fmt</code> before committing.</li>
-      <li>Run <code>cargo clippy -- -D warnings</code> and fix all lints.</li>
-      <li>No <code>unsafe</code> code without a clear justification comment and a <code>// SAFETY:</code> annotation.</li>
-      <li>Keep functions small and focused. Prefer returning <code>Result</code> over panicking.</li>
-    </ul>
-
-    <h3>Architecture</h3>
-    <div class="table-wrap"><table>
-      <tr><th>Module</th><th>Purpose</th></tr>
-      <tr><td><code>main.rs</code></td><td>CLI entry point (clap), command dispatch</td></tr>
-      <tr><td><code>config.rs</code></td><td>Ceremony configuration parsing (YAML/JSON)</td></tr>
-      <tr><td><code>ceremony.rs</code></td><td>Config-driven PKI ceremony orchestration</td></tr>
-      <tr><td><code>certgen.rs</code></td><td>X.509 certificate generation (RSA-4096, Ed25519)</td></tr>
-      <tr><td><code>ed25519_keys.rs</code></td><td>Ed25519 key utilities</td></tr>
-      <tr><td><code>pq.rs</code></td><td>Post-quantum keys (ML-DSA-87, ML-KEM-1024)</td></tr>
-      <tr><td><code>vault.rs</code></td><td>In-memory encrypted key storage (ChaCha20-Poly1305)</td></tr>
-      <tr><td><code>paper.rs</code></td><td>Paper backup (printable HTML) generation</td></tr>
-      <tr><td><code>deploy.rs</code></td><td>Deployment archive generation</td></tr>
-    </table></div>
-
-    <p>New features typically belong in an existing module. If you need a new module, discuss it in an issue first.</p>
-
-    <h3>License</h3>
-    <p>This project is licensed under Apache-2.0. By submitting a pull request you agree that your contribution is licensed under the same terms. No CLA is required.</p>
-
+  <div class="notice">
+    <strong>Security research is welcome.</strong> This tool handles private key material
+    and we take that seriously. If you find a vulnerability, do not open a public issue.
+    Email <a href="mailto:security@hedonistic.io">security@hedonistic.io</a> and we
+    will respond within 48 hours. We credit all valid reports. See
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/SECURITY.md">SECURITY.md</a>
+    for details.
   </div>
 </section>
 
-<!-- SECURITY RESEARCH BANNER -->
-<section id="security-research">
-  <div class="container">
-    <div class="banner">
-      <h3>Security Research Welcome</h3>
-      <p>We welcome security research. This tool handles private key material and we take that seriously.</p>
-      <p>If you discover a vulnerability, <strong>do not open a public issue.</strong> Email <a href="mailto:security@hedonistic.io">security@hedonistic.io</a> with a description of the issue. We will acknowledge receipt within 48 hours and work with you on a fix.</p>
-      <p>We publicly acknowledge researchers who report valid issues (with your permission).</p>
-    </div>
-  </div>
-</section>
+</div>
 
-<!-- FOOTER -->
 <footer>
-  <div class="footer-links">
-    <a href="https://github.com/hedonistic-io/hedonistic-pki">GitHub</a>
-    <a href="https://github.com/hedonistic-io/hedonistic-pki/releases">Releases</a>
-    <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/CONTRIBUTING.md">Contributing</a>
-    <a href="mailto:security@hedonistic.io">Security Policy</a>
-    <a href="https://hedonistic.io">hedonistic.io</a>
+  <div class="wrap">
+    <div>
+      <a href="https://github.com/hedonistic-io/hedonistic-pki">GitHub</a>
+      <a href="https://github.com/hedonistic-io/hedonistic-pki/releases">Releases</a>
+      <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/LICENSE">License</a>
+    </div>
+    <p class="copy">Apache-2.0. Copyright 2026 <a href="https://hedonistic.io">Hedonistic, LLC</a>.</p>
   </div>
-  <p>Copyright 2026 <a href="https://hedonistic.io">Hedonistic, LLC</a>. Licensed under <a href="https://github.com/hedonistic-io/hedonistic-pki/blob/main/LICENSE">Apache-2.0</a>.</p>
-  <p>Part of the Hedonistic brand family.</p>
 </footer>
-
-<script>
-// Mobile nav toggle
-document.querySelector('.nav-toggle').addEventListener('click', function() {
-  document.querySelector('.nav-links').classList.toggle('open');
-});
-
-// Close mobile nav on link click
-document.querySelectorAll('.nav-links a').forEach(function(link) {
-  link.addEventListener('click', function() {
-    document.querySelector('.nav-links').classList.remove('open');
-  });
-});
-
-// Active nav highlighting on scroll
-(function() {
-  var sections = document.querySelectorAll('section[id]');
-  var navLinks = document.querySelectorAll('.nav-links a[href^="#"]');
-  var observer = new IntersectionObserver(function(entries) {
-    entries.forEach(function(entry) {
-      if (entry.isIntersecting) {
-        navLinks.forEach(function(link) {
-          link.style.color = '';
-        });
-        var active = document.querySelector('.nav-links a[href="#' + entry.target.id + '"]');
-        if (active) active.style.color = '#00d4ff';
-      }
-    });
-  }, { rootMargin: '-40% 0px -60% 0px' });
-  sections.forEach(function(section) { observer.observe(section); });
-})();
-</script>
 
 </body>
 </html>
