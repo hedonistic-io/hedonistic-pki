@@ -1,4 +1,4 @@
-//! hedonistic-keygen — Cryptographically secure PKI generator
+//! hedonistic-pki — Cryptographically secure PKI generator
 //!
 //! Designed for airgapped operation on a live Linux install.
 //!
@@ -15,8 +15,8 @@
 //!   - CRL generation for old CA invalidation
 //!
 //! Usage:
-//!   hedonistic-keygen generate --output /mnt/usb/pki
-//!   hedonistic-keygen rekey --old-pki /mnt/usb/pki --output /mnt/usb/pki-new
+//!   hedonistic-pki generate --output /mnt/usb/pki
+//!   hedonistic-pki rekey --old-pki /mnt/usb/pki --output /mnt/usb/pki-new
 //!
 //! The output directory will contain:
 //!   root-ca/root-ca.key         (PKCS#8 encrypted with your passphrase)
@@ -59,7 +59,7 @@ const EMBEDDED_SOURCE_SIG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sou
 
 #[derive(Parser)]
 #[command(
-    name = "hedonistic-keygen",
+    name = "hedonistic-pki",
     about = "Cryptographically secure PKI generator for Hedonistic LLC",
     version,
     long_about = "Generates the full Hedonistic LLC certificate chain on an airgapped machine.\n\
@@ -393,7 +393,7 @@ fn cmd_rekey(old_pki: PathBuf, output: PathBuf, min_len: usize) -> Result<()> {
     // Write recompile script
     let recompile_script = format!(
         r#"#!/bin/sh
-# Recompile hedonistic-keygen with the new CA
+# Recompile hedonistic-pki with the new CA
 # Run this on a machine with Rust installed
 
 set -eu
@@ -401,7 +401,7 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PKI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "=== Recompiling hedonistic-keygen ==="
+echo "=== Recompiling hedonistic-pki ==="
 echo "Using new code signing cert from: $PKI_DIR/code-signing/"
 
 # Decrypt source (you'll need the old code signing passphrase)
@@ -415,11 +415,11 @@ openssl cms -decrypt \
 tar xzf "$SCRIPT_DIR/source.tar.gz" -C "$SCRIPT_DIR"
 
 # Build
-cd "$SCRIPT_DIR/hedonistic-keygen"
+cd "$SCRIPT_DIR/hedonistic-pki"
 cargo build --release --target x86_64-unknown-linux-gnu
 
 # Sign the new binary with new CA
-BINARY="$SCRIPT_DIR/hedonistic-keygen/target/x86_64-unknown-linux-gnu/release/hedonistic-keygen"
+BINARY="$SCRIPT_DIR/hedonistic-pki/target/x86_64-unknown-linux-gnu/release/hedonistic-pki"
 echo "Signing new binary..."
 openssl cms -sign -binary \
     -in "$BINARY" \
@@ -438,7 +438,7 @@ echo ""
 echo "Copy to your distribution point."
 
 # Cleanup
-rm -rf "$SCRIPT_DIR/source.tar.gz" "$SCRIPT_DIR/hedonistic-keygen"
+rm -rf "$SCRIPT_DIR/source.tar.gz" "$SCRIPT_DIR/hedonistic-pki"
 echo "Build artifacts cleaned."
 "#
     );
@@ -493,14 +493,14 @@ fn cmd_extract_source(output: PathBuf, key: PathBuf) -> Result<()> {
 // ═══════════════════════════════════════════════════════════════
 
 fn cmd_verify() -> Result<()> {
-    eprintln!("hedonistic-keygen v{}", env!("CARGO_PKG_VERSION"));
+    eprintln!("hedonistic-pki v{}", env!("CARGO_PKG_VERSION"));
     eprintln!("  Embedded source: {} bytes (encrypted)", EMBEDDED_SOURCE.len());
     eprintln!("  Source signature: {} bytes", EMBEDDED_SOURCE_SIG.len());
     eprintln!();
     eprintln!("To verify this binary was signed by Hedonistic LLC:");
     eprintln!("  openssl cms -verify \\");
-    eprintln!("    -in hedonistic-keygen.sig \\");
-    eprintln!("    -content hedonistic-keygen \\");
+    eprintln!("    -in hedonistic-pki.sig \\");
+    eprintln!("    -content hedonistic-pki \\");
     eprintln!("    -CAfile chain.crt \\");
     eprintln!("    -inform DER -out /dev/null");
     Ok(())
@@ -765,7 +765,7 @@ fn print_success(output: &PathBuf) {
 fn print_banner() {
     eprintln!("================================================================");
     eprintln!("  Hedonistic LLC — Secure PKI Generator");
-    eprintln!("  hedonistic-keygen v{}", env!("CARGO_PKG_VERSION"));
+    eprintln!("  hedonistic-pki v{}", env!("CARGO_PKG_VERSION"));
     eprintln!("================================================================");
     eprintln!();
     eprintln!("Security measures active:");
