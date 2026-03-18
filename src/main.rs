@@ -458,8 +458,8 @@ fn run() -> Result<()> {
 fn cmd_ceremony(
     config_path: String,
     output_override: Option<String>,
-    _paper_backup: bool,
-    _deploy: bool,
+    paper_backup: bool,
+    deploy: bool,
     dry_run: bool,
 ) -> Result<()> {
     print_banner();
@@ -481,6 +481,64 @@ fn cmd_ceremony(
 
     // Offer to save passphrases to encrypted vault
     offer_passphrase_vault(&result.output_dir)?;
+
+    // Generate paper backup if requested
+    if paper_backup {
+        eprintln!("\nGenerating paper backup...");
+        let pki_dir = result.output_dir.to_string_lossy().into_owned();
+        let backup_output = result
+            .output_dir
+            .join("paper-backup.html")
+            .to_string_lossy()
+            .into_owned();
+        if let Err(e) = cmd_paper_backup(pki_dir, Some(backup_output)) {
+            eprintln!("  Warning: paper backup generation failed: {e:#}");
+        }
+    }
+
+    // Generate deployment archives if requested
+    if deploy {
+        eprintln!("\nGenerating deployment archives...");
+        match deploy::inventory_outputs(&result.output_dir) {
+            Ok(outputs) => {
+                deploy::print_summary(&outputs);
+
+                // Write manifest
+                match deploy::generate_manifest(&outputs) {
+                    Ok(manifest) => {
+                        let manifest_path = result.output_dir.join("deploy-manifest.json");
+                        if let Err(e) = fs::write(&manifest_path, &manifest) {
+                            eprintln!("  Warning: failed to write manifest: {e}");
+                        } else {
+                            eprintln!("  Manifest: {}", manifest_path.display());
+                        }
+                    }
+                    Err(e) => eprintln!("  Warning: manifest generation failed: {e:#}"),
+                }
+
+                // Create per-classification archives
+                let deploy_dir = result.output_dir.join("deploy");
+                if let Err(e) = fs::create_dir_all(&deploy_dir) {
+                    eprintln!("  Warning: failed to create deploy directory: {e}");
+                } else {
+                    for class in &[
+                        deploy::FileClass::Public,
+                        deploy::FileClass::Deploy,
+                        deploy::FileClass::Offline,
+                    ] {
+                        let archive_name = format!("{}.tar.gz", class.label().to_lowercase());
+                        let archive_path = deploy_dir.join(&archive_name);
+                        if let Ok(()) =
+                            deploy::create_deployment_archive(&outputs, *class, &archive_path)
+                        {
+                            eprintln!("  Archive: {}", archive_path.display());
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("  Warning: deployment inventory failed: {e:#}"),
+        }
+    }
 
     eprintln!("\nCeremony generated {} certificates.", result.cert_count);
     if !result.ed25519_cert_names.is_empty() {
@@ -595,7 +653,118 @@ fn cmd_paper_backup(pki_dir: String, output: Option<String>) -> Result<()> {
     eprintln!("Generating paper backup from: {pki_dir}");
     eprintln!("  Output: {output_path}");
     eprintln!();
-    eprintln!("  (paper backup generation not yet wired — will invoke paper::generate() here)");
+
+    // Scan the pki_dir recursively for .key and .pem files
+    let mut keys: Vec<paper::KeyForBackup> = Vec::new();
+    scan_keys_recursive(pki_path, pki_path, &mut keys)?;
+
+    if keys.is_empty() {
+        bail!("No .key or .pem files found in {pki_dir}");
+    }
+
+    eprintln!("  Found {} key file(s)", keys.len());
+
+    let config = paper::PaperBackupConfig {
+        title: format!(
+            "PKI Paper Backup — {}",
+            pki_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("hedonistic-pki")
+        ),
+        output_path: output_path.clone(),
+    };
+
+    let html = paper::generate_paper_backup(&config, &keys)?;
+    fs::write(&output_path, &html)
+        .with_context(|| format!("Failed to write paper backup to {output_path}"))?;
+
+    eprintln!("  Paper backup written to: {output_path}");
+    Ok(())
+}
+
+/// Recursively scan a directory for .key and .pem private key files.
+fn scan_keys_recursive(
+    base: &Path,
+    current: &Path,
+    keys: &mut Vec<paper::KeyForBackup>,
+) -> Result<()> {
+    let entries = fs::read_dir(current)
+        .with_context(|| format!("Failed to read directory {}", current.display()))?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            let dirname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !dirname.starts_with('.') {
+                scan_keys_recursive(base, &path, keys)?;
+            }
+        } else {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "key" && ext != "pem" {
+                continue;
+            }
+
+            // Skip certificate files (only want private keys)
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if filename.ends_with(".crt") || filename.ends_with(".pub") {
+                continue;
+            }
+
+            let content = fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+
+            // Only include files that look like PEM private keys
+            if !content.contains("PRIVATE KEY") {
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+
+            // Infer key type from content
+            let key_type = if content.contains("RSA") {
+                "RSA-4096".to_string()
+            } else if content.contains("EC PRIVATE") {
+                "ECDSA".to_string()
+            } else {
+                "Ed25519".to_string()
+            };
+
+            // Infer criticality from directory name
+            let parent_name = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let criticality = if parent_name.contains("root") {
+                paper::Criticality::Critical
+            } else if parent_name.contains("intermediate") || parent_name.contains("sub") {
+                paper::Criticality::High
+            } else {
+                paper::Criticality::Medium
+            };
+
+            let label = path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            keys.push(paper::KeyForBackup {
+                label,
+                key_type,
+                criticality,
+                pem_content: content,
+                file_path: relative,
+            });
+        }
+    }
 
     Ok(())
 }

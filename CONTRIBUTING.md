@@ -9,7 +9,7 @@ classical/post-quantum PKI toolkit designed for airgapped ceremony use.
    in `rust-toolchain.toml`).
 2. Clone the repository and build:
    ```bash
-   git clone https://github.com/hedonisticIO/hedonistic-pki.git
+   git clone https://github.com/hedonistic-io/hedonistic-pki.git
    cd hedonistic-pki
    cargo build
    ```

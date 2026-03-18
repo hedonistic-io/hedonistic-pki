@@ -152,10 +152,10 @@ hedonistic-pki ceremony --config ceremony.yaml --output /mnt/usb/pki
 hedonistic-pki ceremony --config ceremony.yaml --dry-run
 
 # Disable paper backup generation
-hedonistic-pki ceremony --config ceremony.yaml --paper-backup false
+hedonistic-pki ceremony --config ceremony.yaml --no-paper-backup
 
 # Disable deployment archive generation
-hedonistic-pki ceremony --config ceremony.yaml --deploy false
+hedonistic-pki ceremony --config ceremony.yaml --no-deploy
 ```
 
 During the ceremony, you will be prompted interactively for passphrases. Certs
