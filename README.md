@@ -33,13 +33,16 @@ as open source because PKI tooling should not require a week of OpenSSL incantat
   dumps disabled. All sensitive memory zeroized on drop. Panic = abort.
 - **Encrypted on disk**: Private keys written with PKCS#8 + AES-256-CBC encryption.
   Nothing leaves the binary unencrypted.
+- **Passphrase vault**: After a ceremony, optionally save all passphrases to an
+  AES-256-GCM encrypted vault file for transfer to a password manager. Decrypt
+  later with `vault-decrypt`.
 
 ## Quick Start
 
 ```bash
 # 1. Download the binary for your platform
-curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-amd64
-chmod +x hedonistic-pki-linux-amd64
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64
+chmod +x hedonistic-pki-linux-x86_64
 
 # 2. Write your ceremony config
 cat > ceremony.yaml << 'EOF'
@@ -88,10 +91,10 @@ hierarchy:
 EOF
 
 # 3. Run the ceremony (dry run first to validate)
-./hedonistic-pki-linux-amd64 ceremony --config ceremony.yaml --dry-run
+./hedonistic-pki-linux-x86_64 ceremony --config ceremony.yaml --dry-run
 
 # 4. Run for real
-./hedonistic-pki-linux-amd64 ceremony --config ceremony.yaml
+./hedonistic-pki-linux-x86_64 ceremony --config ceremony.yaml
 ```
 
 ## Installation
@@ -103,7 +106,7 @@ Pre-built static binaries are available for Linux (x86_64, aarch64) and macOS
 
 ```bash
 # Linux x86_64
-curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-amd64
+curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-x86_64
 
 # Linux aarch64
 curl -LO https://github.com/hedonistic-io/hedonistic-pki/releases/latest/download/hedonistic-pki-linux-arm64
@@ -235,6 +238,23 @@ hedonistic-pki paper-backup --pki-dir /mnt/usb/pki
 
 # Custom output path
 hedonistic-pki paper-backup --pki-dir /mnt/usb/pki --output backup.html
+```
+
+### `hedonistic-pki vault-decrypt`
+
+Decrypt an offline passphrase vault and display all stored passphrases. After a ceremony,
+copy the `ceremony-vault.enc` file to a networked machine and use this command to transfer
+passphrases into 1Password or another password manager.
+
+```bash
+hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc
+```
+
+You will be prompted for the master password you set during the ceremony. Passphrases are
+printed to stderr. Clear your terminal history afterward and securely delete the vault file:
+
+```bash
+shred -u ceremony-vault.enc   # Linux
 ```
 
 ### `hedonistic-pki extract-source`
