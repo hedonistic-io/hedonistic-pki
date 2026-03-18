@@ -4,7 +4,7 @@
 //! with both RSA-4096 and Ed25519 key algorithms.
 //!
 //! Backward-compatible: `generate_pki_chain()` still produces the original
-//! 3-tier Hedonistic LLC chain (Root → Intermediate → Code Signing).
+//! 3-tier example chain (Root → Intermediate → Code Signing).
 
 use std::path::Path;
 
@@ -212,8 +212,8 @@ pub fn generate_pki_chain(vault: &Vault) -> Result<PkiChain> {
     eprintln!("\n=== Generating Root CA (RSA-4096, SHA-512, 20 years) ===");
     let root_spec = CertGenSpec {
         name: "root-ca".into(),
-        common_name: "Hedonistic Root CA".into(),
-        organization: Some("Hedonistic LLC".into()),
+        common_name: "Example Root CA".into(),
+        organization: Some("Example Organization".into()),
         organizational_unit: Some("Certificate Authority".into()),
         country: Some("US".into()),
         is_ca: true,
@@ -231,15 +231,15 @@ pub fn generate_pki_chain(vault: &Vault) -> Result<PkiChain> {
     let root_key_encrypted = vault
         .encrypt(root.key_pem.as_bytes())
         .context("Failed to encrypt root CA key in vault")?;
-    eprintln!("  Root CA generated: CN=Hedonistic Root CA");
+    eprintln!("  Root CA generated: CN=Example Root CA");
 
     // Intermediate CA
     eprintln!("\n=== Generating Intermediate CA (RSA-4096, SHA-512, 10 years) ===");
     let inter_spec = CertGenSpec {
         name: "intermediate-ca".into(),
-        common_name: "Synthaer Code Signing CA".into(),
-        organization: Some("Hedonistic LLC".into()),
-        organizational_unit: Some("Synthaer.ai".into()),
+        common_name: "Example Intermediate CA".into(),
+        organization: Some("Example Organization".into()),
+        organizational_unit: Some("Code Signing".into()),
         country: Some("US".into()),
         is_ca: true,
         pathlen: Some(0),
@@ -259,15 +259,15 @@ pub fn generate_pki_chain(vault: &Vault) -> Result<PkiChain> {
 
     // Generate CSR for the intermediate
     let inter_csr_pem = generate_csr(&inter_spec, &inter.key_pair)?;
-    eprintln!("  Intermediate CA generated: CN=Synthaer Code Signing CA");
+    eprintln!("  Intermediate CA generated: CN=Example Intermediate CA");
 
     // Code Signing
     eprintln!("\n=== Generating Code Signing Certificate (RSA-4096, SHA-512, 2 years) ===");
     let signing_spec = CertGenSpec {
         name: "code-signing".into(),
-        common_name: "Synthaer Release Signing".into(),
-        organization: Some("Hedonistic LLC".into()),
-        organizational_unit: Some("Synthaer.ai".into()),
+        common_name: "Example Code Signing".into(),
+        organization: Some("Example Organization".into()),
+        organizational_unit: Some("Release Engineering".into()),
         country: Some("US".into()),
         is_ca: false,
         pathlen: None,
@@ -282,7 +282,7 @@ pub fn generate_pki_chain(vault: &Vault) -> Result<PkiChain> {
         .context("Failed to encrypt code signing key in vault")?;
 
     let signing_csr_pem = generate_csr(&signing_spec, &signing.key_pair)?;
-    eprintln!("  Code Signing cert generated: CN=Synthaer Release Signing");
+    eprintln!("  Code Signing cert generated: CN=Example Code Signing");
 
     // Legacy chain PEM = intermediate + root (not including leaf)
     let chain_pem = format!("{}{}", inter.cert_pem, root.cert_pem);

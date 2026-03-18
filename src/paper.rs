@@ -887,7 +887,7 @@ MC4CAQAwBQYDK2VwBCIEIGrpBFwsPmXGc4AI2DGWzLk7PGBfhtESxEiSUfcD8Htc
     #[test]
     fn test_recovery_filename() {
         let key = KeyForBackup {
-            label: "1: Root CA (Hedonistic LLC)".to_string(),
+            label: "1: Root CA (Example Organization)".to_string(),
             key_type: "RSA-4096".to_string(),
             criticality: Criticality::Critical,
             pem_content: String::new(),

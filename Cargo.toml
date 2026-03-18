@@ -17,7 +17,7 @@ path = "src/main.rs"
 conceived = "2026-03-08T17:18:00-08:00"
 conceived_by = "Claude AI Agent and Damien Christian at the HELM"
 location = "California Republic"
-significance = "First post-quantum PKI tooling for Hedonistic LLC"
+significance = "Post-quantum PKI tooling for airgapped certificate generation"
 brand_family = "Hedonistic IO"
 
 [dependencies]

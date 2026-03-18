@@ -60,9 +60,9 @@ const EMBEDDED_SOURCE_SIG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sou
 #[derive(Parser)]
 #[command(
     name = "hedonistic-pki",
-    about = "Cryptographically secure PKI generator for Hedonistic LLC",
+    about = "Cryptographically secure PKI certificate chain generator",
     version,
-    long_about = "Generates the full Hedonistic LLC certificate chain on an airgapped machine.\n\
+    long_about = "Generates a full certificate chain on an airgapped machine.\n\
                   All private keys are held in encrypted memory during generation and\n\
                   written to disk encrypted with your chosen passphrases via PKCS#8 + scrypt."
 )]
@@ -477,7 +477,7 @@ fn cmd_verify() -> Result<()> {
     eprintln!("  Embedded source: {} bytes (encrypted)", EMBEDDED_SOURCE.len());
     eprintln!("  Source signature: {} bytes", EMBEDDED_SOURCE_SIG.len());
     eprintln!();
-    eprintln!("To verify this binary was signed by Hedonistic LLC:");
+    eprintln!("To verify this binary was signed by hedonistic-pki:");
     eprintln!("  openssl cms -verify \\");
     eprintln!("    -in hedonistic-pki.sig \\");
     eprintln!("    -content hedonistic-pki \\");
@@ -744,7 +744,7 @@ fn print_success(output: &PathBuf) {
 
 fn print_banner() {
     eprintln!("================================================================");
-    eprintln!("  Hedonistic LLC — Secure PKI Generator");
+    eprintln!("  hedonistic-pki — Secure PKI Generator");
     eprintln!("  hedonistic-pki v{}", env!("CARGO_PKG_VERSION"));
     eprintln!("================================================================");
     eprintln!();

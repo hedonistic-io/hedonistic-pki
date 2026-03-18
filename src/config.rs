@@ -928,7 +928,7 @@ hierarchy:
       basic_constraints_ca: true
     subject:
       country: US
-      organization: Hedonistic LLC
+      organization: Test LLC
       organizational_unit: PKI
 "#;
         let config: CeremonyConfig = serde_yaml::from_str(yaml).unwrap();
