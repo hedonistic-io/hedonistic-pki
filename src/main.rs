@@ -36,6 +36,7 @@ mod deploy;
 #[allow(unused)]
 mod ed25519_keys;
 pub mod ical;
+pub mod lifecycle;
 #[allow(unused)]
 mod paper;
 mod pq;
@@ -491,6 +492,54 @@ Set to 0 to disable auto-destruction (you must manually unmount)."
         #[arg(long)]
         vault: PathBuf,
     },
+
+    /// Renew expired or near-expiry certificates and their chains
+    Renew {
+        /// Path to the PKI directory
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+
+        /// Renew a specific certificate by name (otherwise renews all expired/near-expiry)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Renew certificates expiring within this many days (default: 90)
+        #[arg(long, default_value = "90")]
+        threshold_days: u32,
+    },
+
+    /// Revoke certificates and generate a CRL
+    Revoke {
+        /// Path to the PKI directory
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+
+        /// Certificate name to revoke
+        #[arg(long)]
+        name: String,
+
+        /// Also revoke all certificates signed by this cert
+        #[arg(long)]
+        cascade: bool,
+    },
+
+    /// Regenerate a certificate and everything below it in the hierarchy
+    Regen {
+        /// Path to the PKI directory
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+
+        /// Certificate name to regenerate
+        #[arg(long)]
+        name: String,
+    },
+
+    /// Change the passphrase on an existing private key file
+    ChangeKeyPassword {
+        /// Path to the PKCS#8 encrypted key file
+        #[arg(long)]
+        key: PathBuf,
+    },
 }
 
 fn main() {
@@ -541,6 +590,18 @@ fn run() -> Result<()> {
         Commands::CheckExpiry { pki_dir, days } => cmd_check_expiry(pki_dir, days),
         Commands::GenerateIcal { pki_dir, output } => cmd_generate_ical(pki_dir, output),
         Commands::ChangeVaultPassword { vault } => cmd_change_vault_password(vault),
+        Commands::Renew {
+            pki_dir,
+            name,
+            threshold_days,
+        } => cmd_renew(pki_dir, name, threshold_days),
+        Commands::Revoke {
+            pki_dir,
+            name,
+            cascade,
+        } => cmd_revoke(pki_dir, name, cascade),
+        Commands::Regen { pki_dir, name } => cmd_regen(pki_dir, name),
+        Commands::ChangeKeyPassword { key } => cmd_change_key_password(key),
     }
 }
 
@@ -2050,4 +2111,237 @@ fn cmd_change_vault_password(vault_path: PathBuf) -> Result<()> {
         eprintln!("\n  Vault password changed successfully.");
         return Ok(());
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENEW — Renew expired or near-expiry certificate chains
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_renew(pki_dir: PathBuf, name: Option<String>, threshold_days: u32) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let mut pki_state = state::PkiState::load(&pki_dir)
+        .context("Failed to load pki-state.json. Run 'inspect' first or re-run the ceremony.")?;
+
+    let ceremony_config: config::CeremonyConfig =
+        serde_json::from_value(pki_state.ceremony_config.clone())
+            .context("Failed to parse ceremony config from pki-state.json")?;
+
+    let certs = read::scan_pki_directory(&pki_dir)?;
+
+    // Determine which certs to renew
+    let to_renew: Vec<String> = if let Some(ref cert_name) = name {
+        if pki_state.find_cert(cert_name).is_none() {
+            bail!("Certificate '{}' not found in PKI state", cert_name);
+        }
+        vec![cert_name.clone()]
+    } else {
+        certs
+            .iter()
+            .filter(|c| {
+                let days = read::days_until_expiry(c);
+                days < 0 || days <= threshold_days as i64
+            })
+            .map(|c| c.name.clone())
+            .collect()
+    };
+
+    if to_renew.is_empty() {
+        eprintln!(
+            "No certificates need renewal (threshold: {} days).",
+            threshold_days
+        );
+        return Ok(());
+    }
+
+    eprintln!("Certificates to renew:");
+    for name in &to_renew {
+        if let Some(cert) = certs.iter().find(|c| &c.name == name) {
+            let days = read::days_until_expiry(cert);
+            let status = if days < 0 {
+                format!("expired {} days ago", -days)
+            } else {
+                format!("{} days remaining", days)
+            };
+            eprintln!("  {} ({}) - {}", cert.subject_cn, name, status);
+        }
+    }
+    eprintln!();
+
+    let mut all_renewed = Vec::new();
+    for cert_name in &to_renew {
+        match lifecycle::renew_cert_chain(&pki_dir, &mut pki_state, cert_name, &ceremony_config) {
+            Ok(renewed) => all_renewed.extend(renewed),
+            Err(e) => eprintln!("  Warning: failed to renew '{}': {e:#}", cert_name),
+        }
+    }
+
+    eprintln!("\nRenewed {} certificates:", all_renewed.len());
+    for name in &all_renewed {
+        eprintln!("  {}", name);
+    }
+
+    // Regenerate calendar files
+    if let Err(e) = generate_ceremony_ical(&pki_dir) {
+        eprintln!("Warning: failed to regenerate calendar files: {e:#}");
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REVOKE — Revoke certificates and generate CRL
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_revoke(pki_dir: PathBuf, name: String, cascade: bool) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let mut pki_state = state::PkiState::load(&pki_dir).context("Failed to load pki-state.json")?;
+
+    let cert = pki_state
+        .find_cert(&name)
+        .ok_or_else(|| anyhow::anyhow!("Certificate '{}' not found in PKI state", name))?;
+
+    if cert.revoked {
+        bail!("Certificate '{}' is already revoked", name);
+    }
+
+    let parent_name = cert.parent.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot revoke root CA '{}' (no issuer to sign CRL). Use 'rekey' instead.",
+            name
+        )
+    })?;
+
+    // Collect certs to revoke
+    let mut to_revoke = vec![name.clone()];
+    if cascade {
+        let descendants = lifecycle::find_descendants(&pki_state, &name);
+        to_revoke.extend(descendants);
+    }
+
+    eprintln!("Certificates to revoke:");
+    for n in &to_revoke {
+        if let Some(c) = pki_state.find_cert(n) {
+            eprintln!("  {} ({})", c.cn, n);
+        }
+    }
+    eprintln!();
+
+    // Prompt for issuer passphrase
+    let mut issuer_pass = rpassword::prompt_password(format!(
+        "  Passphrase for '{}' (to sign CRL): ",
+        parent_name
+    ))
+    .context("Failed to read passphrase")?;
+
+    let crl_path = lifecycle::revoke_certs(
+        &pki_dir,
+        &mut pki_state,
+        &to_revoke,
+        &parent_name,
+        &issuer_pass,
+    )?;
+    issuer_pass.zeroize();
+
+    eprintln!("\nRevoked {} certificate(s).", to_revoke.len());
+    eprintln!("CRL written to: {}", crl_path.display());
+    eprintln!("\nDistribute this CRL to all relying parties.");
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGEN — Regenerate a certificate and its descendants
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_regen(pki_dir: PathBuf, name: String) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let mut pki_state = state::PkiState::load(&pki_dir).context("Failed to load pki-state.json")?;
+
+    let ceremony_config: config::CeremonyConfig =
+        serde_json::from_value(pki_state.ceremony_config.clone())
+            .context("Failed to parse ceremony config from pki-state.json")?;
+
+    if pki_state.find_cert(&name).is_none() {
+        bail!("Certificate '{}' not found in PKI state", name);
+    }
+
+    let mut to_regen = vec![name.clone()];
+    let descendants = lifecycle::find_descendants(&pki_state, &name);
+    to_regen.extend(descendants);
+
+    eprintln!("Certificates to regenerate:");
+    for n in &to_regen {
+        if let Some(c) = pki_state.find_cert(n) {
+            eprintln!("  {} ({})", c.cn, n);
+        }
+    }
+    eprintln!();
+
+    let renewed = lifecycle::renew_cert_chain(&pki_dir, &mut pki_state, &name, &ceremony_config)?;
+
+    eprintln!("\nRegenerated {} certificates:", renewed.len());
+    for n in &renewed {
+        eprintln!("  {}", n);
+    }
+
+    // Regenerate calendar files
+    if let Err(e) = generate_ceremony_ical(&pki_dir) {
+        eprintln!("Warning: failed to regenerate calendar files: {e:#}");
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHANGE-KEY-PASSWORD — Re-encrypt a private key with new passphrase
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_change_key_password(key_path: PathBuf) -> Result<()> {
+    if !key_path.exists() {
+        bail!("Key file not found: {}", key_path.display());
+    }
+
+    eprintln!("Changing passphrase for: {}", key_path.display());
+    eprintln!();
+
+    let mut old_pass = rpassword::prompt_password("  Current passphrase: ")
+        .context("Failed to read current passphrase")?;
+
+    let mut new_pass = rpassword::prompt_password("  New passphrase (min 16 chars): ")
+        .context("Failed to read new passphrase")?;
+
+    if new_pass.len() < 16 {
+        new_pass.zeroize();
+        old_pass.zeroize();
+        bail!("New passphrase must be at least 16 characters");
+    }
+
+    let mut confirm = rpassword::prompt_password("  Confirm new passphrase: ")
+        .context("Failed to read confirmation")?;
+
+    if new_pass != confirm {
+        new_pass.zeroize();
+        confirm.zeroize();
+        old_pass.zeroize();
+        bail!("Passphrases don't match");
+    }
+    confirm.zeroize();
+
+    lifecycle::change_key_passphrase(&key_path, &old_pass, &new_pass)?;
+
+    old_pass.zeroize();
+    new_pass.zeroize();
+
+    eprintln!("\n  Key passphrase changed successfully.");
+
+    Ok(())
 }
