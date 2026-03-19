@@ -258,6 +258,7 @@ footer .copy { margin-top: 12px; }
     <nav>
       <a href="#start">Start</a>
       <a href="#commands">Commands</a>
+      <a href="#lifecycle">Lifecycle</a>
       <a href="#config">Config</a>
       <a href="#security">Security</a>
       <a href="#contribute">Contribute</a>
@@ -285,7 +286,7 @@ footer .copy { margin-top: 12px; }
     binary with no runtime dependencies. Not even OpenSSL.
   </p>
   <div class="links">
-    <a href="https://github.com/hedonistic-io/hedonistic-pki/releases/latest">Download v1.0.0</a>
+    <a href="https://github.com/hedonistic-io/hedonistic-pki/releases/latest">Download v1.1.0</a>
     <a href="https://github.com/hedonistic-io/hedonistic-pki">Source on GitHub</a>
   </div>
 </div>
@@ -390,6 +391,21 @@ hierarchy:
     No network calls. No telemetry. No update checks. No DNS lookups. Nothing.
     The binary embeds an encrypted copy of its own source code so you can
     recompile it during key rotation without trusting anything off the machine.</p>
+  <p><strong>After the ceremony.</strong>
+    Generating certificates is only half the job. You also need to know when
+    they expire, renew them when the time comes, and revoke them if something
+    goes wrong. hedonistic-pki tracks the state of your PKI in a
+    <code>pki-state.json</code> file and gives you commands to manage the full
+    lifecycle: <code>inspect</code> to see what you have,
+    <code>check-expiry</code> to catch problems before they bite,
+    <code>renew</code> to regenerate expiring chains, <code>revoke</code> to
+    kill a cert and generate a CRL, and <code>regen</code> to rebuild any part
+    of the hierarchy from scratch.</p>
+  <p><strong>Calendar reminders.</strong>
+    After a ceremony, the tool generates iCalendar files with reminders at 90,
+    60, 45, 30, 15, 7, and 1 day before each certificate expires. Import them
+    into whatever calendar you use. You will never be surprised by an expired
+    cert at 2am again.</p>
 </section>
 
 <!-- GETTING STARTED -->
@@ -557,6 +573,124 @@ hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc
 <span class="sh"># after transferring to 1Password:</span>
 shred -u ceremony-vault.enc</code></pre>
 
+  <h3>inspect</h3>
+  <p>
+    Show the current state of a PKI directory. Lists every certificate with its
+    subject, issuer, serial number, validity dates, and how many days remain
+    before expiration. Reads from the <code>pki-state.json</code> file if one
+    exists, or scans the directory for certificates directly.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory to inspect</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki inspect --pki-dir /mnt/usb/pki</code></pre>
+
+  <h3>check-expiry</h3>
+  <p>
+    Check certificates for upcoming expiration. By default, anything expiring
+    within 90 days is flagged. Returns a nonzero exit code if any certificates
+    are within the threshold, so you can use it in scripts and monitoring.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory to check</td></tr>
+    <tr><td><code>--days</code></td><td>90</td><td>Expiration warning threshold in days</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki check-expiry --pki-dir /mnt/usb/pki
+hedonistic-pki check-expiry --pki-dir /mnt/usb/pki --days 30</code></pre>
+
+  <h3>generate-ical</h3>
+  <p>
+    Generate iCalendar (.ics) files with expiration reminders for every
+    certificate in the PKI. Each certificate gets reminders at 90, 60, 45, 30,
+    15, 7, and 1 day before it expires. Import the files into your calendar
+    and you will never be caught off guard.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory to scan for certificates</td></tr>
+    <tr><td><code>--output, -o</code></td><td>auto</td><td>Output directory for .ics files</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki generate-ical --pki-dir /mnt/usb/pki
+hedonistic-pki generate-ical --pki-dir /mnt/usb/pki --output ./reminders</code></pre>
+
+  <h3>renew</h3>
+  <p>
+    Renew certificates that are approaching expiration. Without
+    <code>--name</code>, it renews everything within the threshold. With
+    <code>--name</code>, it renews only that specific certificate and re-signs
+    any children. You will be prompted for passphrases to decrypt the relevant
+    private keys.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory containing the certificates</td></tr>
+    <tr><td><code>--name</code></td><td>all expiring</td><td>Name of a specific certificate to renew</td></tr>
+    <tr><td><code>--threshold-days</code></td><td>90</td><td>Only renew certs expiring within this many days</td></tr>
+  </table></div>
+<pre><code><span class="sh"># Renew everything expiring within 90 days</span>
+hedonistic-pki renew --pki-dir /mnt/usb/pki
+
+<span class="sh"># Renew a specific cert</span>
+hedonistic-pki renew --pki-dir /mnt/usb/pki --name intermediate
+
+<span class="sh"># Use a shorter threshold</span>
+hedonistic-pki renew --pki-dir /mnt/usb/pki --threshold-days 30</code></pre>
+
+  <h3>revoke</h3>
+  <p>
+    Revoke a certificate and generate a CRL signed by its parent CA. With
+    <code>--cascade</code>, all certificates signed by the revoked cert are
+    also revoked. You will be prompted for the parent CA passphrase to sign
+    the CRL.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory</td></tr>
+    <tr><td><code>--name</code></td><td>required</td><td>Name of the certificate to revoke</td></tr>
+    <tr><td><code>--cascade</code></td><td></td><td>Also revoke all children of this certificate</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki revoke --pki-dir /mnt/usb/pki --name code-signing
+hedonistic-pki revoke --pki-dir /mnt/usb/pki --name intermediate --cascade</code></pre>
+
+  <h3>regen</h3>
+  <p>
+    Regenerate a specific certificate in the hierarchy. Generates a new key
+    pair, signs it with the parent CA, and updates the state file. Children of
+    the regenerated cert are re-signed automatically. Useful when a key is
+    compromised or when you want to change the algorithm or validity period
+    for a single cert without rebuilding everything.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--pki-dir</code></td><td>required</td><td>PKI directory</td></tr>
+    <tr><td><code>--name</code></td><td>required</td><td>Name of the certificate to regenerate</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki regen --pki-dir /mnt/usb/pki --name code-signing</code></pre>
+
+  <h3>change-vault-password</h3>
+  <p>
+    Change the password on a ceremony passphrase vault file. Decrypts the vault
+    with the old password and re-encrypts it with a new one.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--vault</code></td><td>required</td><td>Path to the encrypted vault file</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki change-vault-password --vault ./pki/ceremony-vault.enc</code></pre>
+
+  <h3>change-key-password</h3>
+  <p>
+    Change the passphrase on an individual private key file. Decrypts the key
+    with the old passphrase and re-encrypts it with a new one.
+  </p>
+  <div class="tbl"><table>
+    <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>--key</code></td><td>required</td><td>Path to the encrypted private key</td></tr>
+  </table></div>
+<pre><code>hedonistic-pki change-key-password --key ./pki/intermediate-ca/intermediate-ca.key</code></pre>
+
   <h3>extract-source</h3>
   <p>
     Pull the encrypted source code out of the binary. The source is embedded at
@@ -575,6 +709,32 @@ shred -u ceremony-vault.enc</code></pre>
     signature. No flags.
   </p>
 <pre><code>hedonistic-pki verify</code></pre>
+</section>
+
+<!-- LIFECYCLE -->
+<section id="lifecycle">
+  <h2>Lifecycle</h2>
+  <p>
+    These commands work on an existing PKI directory that was created by a
+    ceremony. They read and update the <code>pki-state.json</code> file that
+    tracks your certificate hierarchy, so you do not have to remember what you
+    generated, when it expires, or which cert signed which.
+  </p>
+  <p>
+    The typical flow after a ceremony: run <code>inspect</code> to confirm
+    everything looks right. Run <code>generate-ical</code> and import the
+    calendar files. Months later, <code>check-expiry</code> tells you what
+    needs attention. <code>renew</code> handles the renewal. If a key is
+    compromised, <code>revoke</code> generates a CRL and <code>regen</code>
+    rebuilds the affected cert. <code>change-vault-password</code> and
+    <code>change-key-password</code> let you rotate credentials without
+    regenerating certificates.
+  </p>
+  <p>
+    All of these commands work offline. None of them phone home or require
+    network access. They are designed for the same airgapped environment as
+    the ceremony itself.
+  </p>
 </section>
 
 <!-- CONFIG REFERENCE -->
