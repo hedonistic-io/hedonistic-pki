@@ -36,6 +36,15 @@ as open source because PKI tooling should not require a week of OpenSSL incantat
 - **Passphrase vault**: After a ceremony, optionally save all passphrases to an
   AES-256-GCM encrypted vault file for transfer to a password manager. Decrypt
   later with `vault-decrypt`.
+- **PKI lifecycle**: Renew expired certificates, revoke certs with CRL generation,
+  regenerate individual certificates and their chains. The tool tracks state across
+  operations via `pki-state.json`.
+- **Certificate inspection**: Scan a PKI directory and display all certificates with
+  expiry status, algorithm, serial number, and chain info. Integrates with CI via
+  `check-expiry` (exit code 1 if any cert is expired).
+- **Calendar reminders**: Generate iCalendar (.ics) files with expiry reminders at
+  90, 60, 45, 30, 15, 7, and 1 day before each certificate expires. Import into
+  Google Calendar, Outlook, or Apple Calendar.
 
 ## Quick Start
 
@@ -255,6 +264,94 @@ printed to stderr. Clear your terminal history afterward and securely delete the
 
 ```bash
 shred -u ceremony-vault.enc   # Linux
+```
+
+### `hedonistic-pki inspect`
+
+Show all certificates in a PKI directory with expiry status, algorithm, serial numbers,
+and chain relationships. Color-coded: green for healthy, yellow for expiring within 90
+days, red for expired.
+
+```bash
+hedonistic-pki inspect --pki-dir /mnt/usb/pki
+```
+
+### `hedonistic-pki check-expiry`
+
+Check certificates for upcoming or past expiration. Exit code 1 if any certificate is
+expired. Useful for CI pipelines and monitoring scripts.
+
+```bash
+hedonistic-pki check-expiry --pki-dir /mnt/usb/pki
+
+# Custom threshold (default: 90 days)
+hedonistic-pki check-expiry --pki-dir /mnt/usb/pki --days 30
+```
+
+### `hedonistic-pki generate-ical`
+
+Generate iCalendar reminder files for all certificate expirations. Creates one .ics file
+per certificate plus a combined file. Reminders fire at 90, 60, 45, 30, 15, 7, 1, and 0
+days before expiry.
+
+```bash
+hedonistic-pki generate-ical --pki-dir /mnt/usb/pki
+
+# Custom output directory
+hedonistic-pki generate-ical --pki-dir /mnt/usb/pki --output ./reminders
+```
+
+### `hedonistic-pki renew`
+
+Renew expired or near-expiry certificates and re-sign the chain downward. Prompts for the
+parent CA passphrase to re-sign each renewed certificate.
+
+```bash
+# Renew all certs expiring within 90 days (default)
+hedonistic-pki renew --pki-dir /mnt/usb/pki
+
+# Renew a specific certificate
+hedonistic-pki renew --pki-dir /mnt/usb/pki --name intermediate-ca
+
+# Custom threshold
+hedonistic-pki renew --pki-dir /mnt/usb/pki --threshold-days 30
+```
+
+### `hedonistic-pki revoke`
+
+Revoke a certificate and generate a CRL signed by the parent CA. Use `--cascade` to also
+revoke everything the certificate has signed.
+
+```bash
+hedonistic-pki revoke --pki-dir /mnt/usb/pki --name code-signing
+
+# Revoke a CA and everything it signed
+hedonistic-pki revoke --pki-dir /mnt/usb/pki --name intermediate-ca --cascade
+```
+
+### `hedonistic-pki regen`
+
+Regenerate a certificate and all its descendants unconditionally. New keys, new serial
+numbers. The parent CA re-signs everything.
+
+```bash
+hedonistic-pki regen --pki-dir /mnt/usb/pki --name intermediate-ca
+```
+
+### `hedonistic-pki change-vault-password`
+
+Change the master password on an encrypted passphrase vault file.
+
+```bash
+hedonistic-pki change-vault-password --vault ./pki/ceremony-vault.enc
+```
+
+### `hedonistic-pki change-key-password`
+
+Change the passphrase on an existing PKCS#8 encrypted private key.
+
+```bash
+hedonistic-pki change-key-password --key ./pki/root-ca/root-ca.key
 ```
 
 ### `hedonistic-pki extract-source`
