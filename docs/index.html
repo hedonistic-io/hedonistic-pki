@@ -219,6 +219,7 @@ li { margin-bottom: 4px; }
   font-family: "SF Mono", "Fira Mono", Menlo, Consolas, monospace;
   font-size: 13.5px;
   line-height: 1.7;
+  white-space: pre;
   color: var(--text-dim);
   background: var(--bg-code);
   border: 1px solid var(--border);
@@ -528,12 +529,31 @@ hedonistic-pki ceremony --config ceremony.yaml --no-paper-backup --no-deploy</co
     all your passphrases into an encrypted vault file. Take that file to a
     networked machine and use this command to get them into your password manager.
   </p>
+  <p>
+    <strong>Without <code>--ramfs</code></strong>, passphrases are printed to the terminal and a
+    disk-persistence warning is displayed (terminal scrollback, shell history, and screen
+    recording can all capture the output). You must confirm to proceed.
+  </p>
+  <p>
+    <strong>With <code>--ramfs</code></strong>, passphrases are written to a RAM-backed filesystem
+    that never touches persistent storage. On Linux this uses <code>/dev/shm</code> (no root
+    required). On macOS it creates a RAM disk via <code>hdiutil</code>. A background process
+    automatically overwrites and unmounts the filesystem after <code>--ttl</code> seconds.
+  </p>
   <div class="tbl"><table>
     <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
     <tr><td><code>--vault</code></td><td>required</td><td>Path to encrypted vault file</td></tr>
+    <tr><td><code>--ramfs</code></td><td></td><td>Decrypt to a temporary RAM filesystem instead of terminal</td></tr>
+    <tr><td><code>--ttl</code></td><td>300</td><td>Auto-destruct timeout in seconds (0 to disable)</td></tr>
   </table></div>
-<pre><code>hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc
-<span class="sh"># passphrases print to stderr</span>
+<pre><code><span class="sh"># Recommended: decrypt to RAM filesystem (self-destructs in 5 minutes)</span>
+hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc --ramfs
+
+<span class="sh"># Custom timeout (10 minutes)</span>
+hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc --ramfs --ttl 600
+
+<span class="sh"># Legacy: print to terminal (shows disk-persistence warning)</span>
+hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc
 <span class="sh"># after transferring to 1Password:</span>
 shred -u ceremony-vault.enc</code></pre>
 

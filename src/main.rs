@@ -35,9 +35,12 @@ mod config;
 mod deploy;
 #[allow(unused)]
 mod ed25519_keys;
+pub mod ical;
 #[allow(unused)]
 mod paper;
 mod pq;
+pub mod read;
+pub mod state;
 mod vault;
 
 use std::fs;
@@ -379,14 +382,31 @@ The vault file is encrypted with AES-256-GCM using a key derived from your \
 master password via 100,000 iterations of SHA-256. You will be prompted for \
 the master password interactively.\n\
 \n\
-WARNING: Passphrases will be displayed in the terminal. Ensure no one is \
-watching your screen and clear your terminal history afterward.",
+By default, passphrases are printed to the terminal, which may be logged by \
+your terminal emulator's scrollback buffer or shell history. For maximum \
+security, use --ramfs to decrypt into a RAM-backed filesystem that \
+self-destructs after a configurable timeout.\n\
+\n\
+WARNING: Without --ramfs, a disk-persistence warning will be displayed.",
         after_help = "\
 EXAMPLES:\n  \
-  hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc\n  \
-  hedonistic-pki vault-decrypt --vault /mnt/usb/pki/ceremony-vault.enc\n\
+  # Standard (prints to terminal with disk warning):\n  \
+  hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc\n\
+\n  \
+  # Secure (decrypts to RAM filesystem, auto-destroys in 5 minutes):\n  \
+  hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc --ramfs\n\
+\n  \
+  # Secure with custom timeout (10 minutes):\n  \
+  hedonistic-pki vault-decrypt --vault ./pki/ceremony-vault.enc --ramfs --ttl 600\n\
 \n\
-WORKFLOW:\n  \
+WORKFLOW (recommended):\n  \
+  1. Copy ceremony-vault.enc from the airgapped USB to your networked machine\n  \
+  2. Run: hedonistic-pki vault-decrypt --vault ceremony-vault.enc --ramfs\n  \
+  3. Open the passphrases file from the RAM mount\n  \
+  4. Copy each passphrase into 1Password\n  \
+  5. The RAM filesystem self-destructs automatically\n\
+\n\
+WORKFLOW (legacy):\n  \
   1. Copy ceremony-vault.enc from the airgapped USB to your networked machine\n  \
   2. Run: hedonistic-pki vault-decrypt --vault ceremony-vault.enc\n  \
   3. Enter the master password you chose during the ceremony\n  \
@@ -404,6 +424,71 @@ This file is created during the ceremony when you choose to save passphrases \
 to an encrypted vault. It contains all ceremony passphrases encrypted with \
 AES-256-GCM under your master password."
         )]
+        vault: PathBuf,
+
+        /// Decrypt to a temporary RAM filesystem that self-destructs
+        #[arg(
+            long,
+            help = "Decrypt to a temporary RAM filesystem instead of printing to terminal",
+            long_help = "\
+Creates a RAM-backed filesystem (tmpfs on Linux, RAM disk on macOS), writes \
+the decrypted passphrases to a file there, and schedules automatic destruction \
+after --ttl seconds. The passphrases never touch persistent storage and never \
+appear in terminal scrollback.\n\
+\n\
+On Linux, uses /dev/shm (no root required).\n\
+On macOS, creates a RAM disk via hdiutil (may prompt for privileges)."
+        )]
+        ramfs: bool,
+
+        /// Seconds until the RAM filesystem self-destructs (default: 300 = 5 minutes)
+        #[arg(
+            long,
+            default_value = "300",
+            help = "Auto-destruct timeout in seconds (default: 300)",
+            long_help = "\
+How many seconds the RAM filesystem should persist before automatic destruction. \
+After this timeout, the decrypted passphrases file is securely overwritten and \
+the RAM filesystem is unmounted and released.\n\
+\n\
+Set to 0 to disable auto-destruction (you must manually unmount)."
+        )]
+        ttl: u64,
+    },
+
+    /// Inspect a PKI directory: show all certificates, expiry dates, and chain info
+    Inspect {
+        /// Path to the PKI directory to inspect
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+    },
+
+    /// Check certificate expiry and warn about upcoming expirations
+    CheckExpiry {
+        /// Path to the PKI directory to check
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+
+        /// Warn about certificates expiring within this many days (default: 90)
+        #[arg(long, default_value = "90")]
+        days: u32,
+    },
+
+    /// Generate iCalendar (.ics) reminder files for certificate expirations
+    GenerateIcal {
+        /// Path to the PKI directory to scan
+        #[arg(short, long)]
+        pki_dir: PathBuf,
+
+        /// Output directory for .ics files (default: <pki-dir>/calendars)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Change the master password on a passphrase vault file
+    ChangeVaultPassword {
+        /// Path to the encrypted vault file
+        #[arg(long)]
         vault: PathBuf,
     },
 }
@@ -447,7 +532,15 @@ fn run() -> Result<()> {
         Commands::PaperBackup { pki_dir, output } => cmd_paper_backup(pki_dir, output),
         Commands::ExtractSource { output, key } => cmd_extract_source(output, key),
         Commands::Verify => cmd_verify(),
-        Commands::VaultDecrypt { vault: vault_path } => cmd_vault_decrypt(vault_path),
+        Commands::VaultDecrypt {
+            vault: vault_path,
+            ramfs,
+            ttl,
+        } => cmd_vault_decrypt(vault_path, ramfs, ttl),
+        Commands::Inspect { pki_dir } => cmd_inspect(pki_dir),
+        Commands::CheckExpiry { pki_dir, days } => cmd_check_expiry(pki_dir, days),
+        Commands::GenerateIcal { pki_dir, output } => cmd_generate_ical(pki_dir, output),
+        Commands::ChangeVaultPassword { vault } => cmd_change_vault_password(vault),
     }
 }
 
@@ -540,6 +633,23 @@ fn cmd_ceremony(
         }
     }
 
+    // Generate PKI state file
+    eprintln!("\nWriting PKI state file...");
+    match write_pki_state(&result.output_dir, &config_path) {
+        Ok(()) => eprintln!(
+            "  State: {}",
+            result.output_dir.join("pki-state.json").display()
+        ),
+        Err(e) => eprintln!("  Warning: failed to write state file: {e:#}"),
+    }
+
+    // Generate iCalendar reminders
+    eprintln!("\nGenerating calendar reminders...");
+    match generate_ceremony_ical(&result.output_dir) {
+        Ok(count) => eprintln!("  Generated {} calendar files in calendars/", count),
+        Err(e) => eprintln!("  Warning: calendar generation failed: {e:#}"),
+    }
+
     eprintln!("\nCeremony generated {} certificates.", result.cert_count);
     if !result.ed25519_cert_names.is_empty() {
         eprintln!(
@@ -550,6 +660,77 @@ fn cmd_ceremony(
     eprintln!("Output: {}", result.output_dir.display());
 
     Ok(())
+}
+
+/// Write pki-state.json by scanning the ceremony output directory.
+fn write_pki_state(output_dir: &Path, config_path: &str) -> Result<()> {
+    let config_text = fs::read_to_string(config_path)?;
+    let config_value: serde_json::Value = if config_path.ends_with(".json") {
+        serde_json::from_str(&config_text)?
+    } else {
+        serde_yaml::from_str(&config_text)?
+    };
+
+    let mut pki_state = state::PkiState::new(&config_value);
+
+    // Scan for generated certificates and record them
+    let certs = read::scan_pki_directory(output_dir)?;
+    let config: config::CeremonyConfig = if config_path.ends_with(".json") {
+        serde_json::from_str(&config_text)?
+    } else {
+        serde_yaml::from_str(&config_text)?
+    };
+
+    for cert_info in &certs {
+        // Try to match with config to get parent/type info
+        let spec = config.hierarchy.iter().find(|s| s.name == cert_info.name);
+
+        pki_state.add_cert(state::CertRecord {
+            name: cert_info.name.clone(),
+            cn: cert_info.subject_cn.clone(),
+            serial_hex: cert_info.serial_hex.clone(),
+            fingerprint_sha256: cert_info.fingerprint_sha256.clone(),
+            algorithm: cert_info.algorithm.clone(),
+            cert_type: spec.map_or("unknown".to_string(), |s| {
+                format!("{:?}", s.cert_type).to_lowercase()
+            }),
+            parent: spec.and_then(|s| s.parent.clone()),
+            not_before: cert_info.not_before.to_string(),
+            not_after: cert_info.not_after.to_string(),
+            generated_at: state::PkiState::now_iso8601(),
+            offline: spec.is_some_and(|s| s.offline),
+            revoked: false,
+            revoked_at: None,
+        });
+    }
+
+    pki_state.save(output_dir)
+}
+
+/// Generate iCal files from certificates found in the output directory.
+fn generate_ceremony_ical(output_dir: &Path) -> Result<usize> {
+    let certs = read::scan_pki_directory(output_dir)?;
+    if certs.is_empty() {
+        return Ok(0);
+    }
+
+    let cert_data: Vec<(String, String, String, String, ::time::OffsetDateTime)> = certs
+        .iter()
+        .map(|c| {
+            (
+                c.name.clone(),
+                c.subject_cn.clone(),
+                c.serial_hex.clone(),
+                c.algorithm.clone(),
+                c.not_after,
+            )
+        })
+        .collect();
+
+    let cal_dir = output_dir.join("calendars");
+    ical::write_ical_files(&cal_dir, &cert_data)?;
+
+    Ok(cert_data.len() + 1) // individual files + combined
 }
 
 /// Prompt the user to save ceremony passphrases to an encrypted vault file.
@@ -610,9 +791,29 @@ fn offer_passphrase_vault(output_dir: &std::path::Path) -> Result<()> {
 // VAULT-DECRYPT — Decrypt offline passphrase vault
 // ═══════════════════════════════════════════════════════════════
 
-fn cmd_vault_decrypt(vault_path: PathBuf) -> Result<()> {
+fn cmd_vault_decrypt(vault_path: PathBuf, ramfs: bool, ttl: u64) -> Result<()> {
     if !vault_path.exists() {
         bail!("Vault file not found: {}", vault_path.display());
+    }
+
+    // ── Disk persistence warning (when NOT using --ramfs) ─────
+    if !ramfs {
+        warn_disk_decryption();
+        eprint!("  Continue without RAM filesystem? [y/N] ");
+        io::stderr().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        let answer = answer.trim().to_lowercase();
+        if answer != "y" && answer != "yes" {
+            eprintln!();
+            eprintln!("  Aborted. Re-run with --ramfs for secure decryption:");
+            eprintln!(
+                "    hedonistic-pki vault-decrypt --vault {} --ramfs",
+                vault_path.display()
+            );
+            return Ok(());
+        }
+        eprintln!();
     }
 
     eprintln!("Decrypting vault: {}", vault_path.display());
@@ -626,11 +827,252 @@ fn cmd_vault_decrypt(vault_path: PathBuf) -> Result<()> {
 
     if vault.is_empty() {
         eprintln!("\n  Vault is empty — no passphrases stored.");
+        return Ok(());
+    }
+
+    // ── RAM filesystem mode ───────────────────────────────────
+    if ramfs {
+        let (mount_path, disk_id) =
+            create_secure_ramdir().context("Failed to create RAM filesystem")?;
+
+        let output_file = mount_path.join("passphrases.txt");
+        vault
+            .write_to_file(&output_file)
+            .context("Failed to write passphrases to RAM filesystem")?;
+
+        eprintln!();
+        eprintln!("  ================================================================");
+        eprintln!("  Passphrases written to RAM filesystem:");
+        eprintln!("    {}", output_file.display());
+        eprintln!("  ================================================================");
+        eprintln!();
+
+        if ttl > 0 {
+            schedule_ramfs_destruction(&mount_path, &output_file, ttl, disk_id.as_deref())
+                .context("Failed to schedule RAM filesystem destruction")?;
+
+            let mins = ttl / 60;
+            let secs = ttl % 60;
+            if mins > 0 && secs > 0 {
+                eprintln!("  Self-destruct in {} min {} sec.", mins, secs);
+            } else if mins > 0 {
+                eprintln!("  Self-destruct in {} min.", mins);
+            } else {
+                eprintln!("  Self-destruct in {} sec.", secs);
+            }
+            eprintln!("  Transfer passphrases to 1Password before the timer expires.");
+        } else {
+            eprintln!("  Auto-destruct DISABLED (--ttl 0). You must manually clean up:");
+            #[cfg(target_os = "macos")]
+            if let Some(ref disk) = disk_id {
+                eprintln!("    hdiutil detach {} -force", disk);
+            }
+            #[cfg(target_os = "linux")]
+            eprintln!(
+                "    rm -f {} && rmdir {}",
+                output_file.display(),
+                mount_path.display()
+            );
+        }
+        eprintln!();
     } else {
+        // ── Legacy terminal output mode ───────────────────────
         vault.print_entries();
     }
 
     Ok(())
+}
+
+/// Print a prominent warning about disk persistence risks.
+fn warn_disk_decryption() {
+    eprintln!();
+    eprintln!("  ╔════════════════════════════════════════════════════════════════╗");
+    eprintln!("  ║  WARNING: Decrypting to persistent storage                    ║");
+    eprintln!("  ╠════════════════════════════════════════════════════════════════╣");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ║  Passphrases will be displayed in your terminal. This poses    ║");
+    eprintln!("  ║  several data-at-rest risks:                                   ║");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ║    · Terminal scrollback buffer (may persist on disk)           ║");
+    eprintln!("  ║    · Shell history logging                                     ║");
+    eprintln!("  ║    · Screen recording or accessibility services                ║");
+    eprintln!("  ║    · Shoulder surfing                                          ║");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ║  For maximum security, decrypt to a RAM filesystem instead:    ║");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ║    hedonistic-pki vault-decrypt --vault <path> --ramfs         ║");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ║  The RAM filesystem self-destructs after 5 minutes (or set     ║");
+    eprintln!("  ║  a custom timeout with --ttl <seconds>). Passphrases never     ║");
+    eprintln!("  ║  touch persistent storage and never appear in scrollback.      ║");
+    eprintln!("  ║                                                                ║");
+    eprintln!("  ╚════════════════════════════════════════════════════════════════╝");
+    eprintln!();
+}
+
+/// Create a secure RAM-backed temporary directory.
+///
+/// Returns (mount_path, optional_disk_id).
+/// - Linux: uses /dev/shm (tmpfs, no root required)
+/// - macOS: creates a RAM disk via hdiutil
+fn create_secure_ramdir() -> Result<(PathBuf, Option<String>)> {
+    #[cfg(target_os = "linux")]
+    {
+        create_secure_ramdir_linux()
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        create_secure_ramdir_macos()
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        bail!(
+            "--ramfs is not supported on this platform. Use Linux (/dev/shm) or macOS (hdiutil)."
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn create_secure_ramdir_linux() -> Result<(PathBuf, Option<String>)> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let shm = std::path::Path::new("/dev/shm");
+    if !shm.exists() || !shm.is_dir() {
+        bail!(
+            "/dev/shm is not available on this system.\n\
+             Ensure tmpfs is mounted: mount -t tmpfs tmpfs /dev/shm"
+        );
+    }
+
+    let dir_name = format!("hpki-vault-{}", std::process::id());
+    let path = shm.join(&dir_name);
+
+    std::fs::create_dir(&path)
+        .with_context(|| format!("Failed to create directory in /dev/shm: {}", path.display()))?;
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+        .context("Failed to set permissions on RAM directory")?;
+
+    eprintln!("  Created RAM-backed directory: {}", path.display());
+    eprintln!("  (backed by /dev/shm — tmpfs, never touches disk)");
+
+    Ok((path, None))
+}
+
+#[cfg(target_os = "macos")]
+fn create_secure_ramdir_macos() -> Result<(PathBuf, Option<String>)> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Create a 2MB RAM disk (4096 sectors × 512 bytes = 2MB)
+    let output = std::process::Command::new("hdiutil")
+        .args(["attach", "-nomount", "ram://4096"])
+        .output()
+        .context("Failed to execute hdiutil — is this macOS?")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("hdiutil failed to create RAM disk: {}", stderr.trim());
+    }
+
+    let disk_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if disk_id.is_empty() {
+        bail!("hdiutil returned empty disk identifier");
+    }
+
+    // Format as APFS with a recognizable volume name
+    let volume_name = format!("hpki-vault-{}", std::process::id());
+    let format_output = std::process::Command::new("diskutil")
+        .args(["eraseVolume", "APFS", &volume_name, &disk_id])
+        .output()
+        .context("Failed to execute diskutil")?;
+
+    if !format_output.status.success() {
+        // Clean up the raw disk on failure
+        let _ = std::process::Command::new("hdiutil")
+            .args(["detach", &disk_id, "-force"])
+            .output();
+        let stderr = String::from_utf8_lossy(&format_output.stderr);
+        bail!("diskutil failed to format RAM disk: {}", stderr.trim());
+    }
+
+    let mount_path = PathBuf::from(format!("/Volumes/{volume_name}"));
+    if !mount_path.exists() {
+        // Clean up on failure
+        let _ = std::process::Command::new("hdiutil")
+            .args(["detach", &disk_id, "-force"])
+            .output();
+        bail!(
+            "RAM disk formatted but mount point not found at {}",
+            mount_path.display()
+        );
+    }
+
+    // Restrict permissions
+    std::fs::set_permissions(&mount_path, std::fs::Permissions::from_mode(0o700))
+        .context("Failed to set permissions on RAM disk")?;
+
+    eprintln!("  Created RAM disk: {} ({})", mount_path.display(), disk_id);
+    eprintln!("  (backed by physical RAM — never touches persistent storage)");
+
+    Ok((mount_path, Some(disk_id)))
+}
+
+/// Schedule automatic destruction of the RAM filesystem.
+///
+/// Forks a background process that sleeps for `ttl` seconds, then securely
+/// overwrites the passphrases file and unmounts/removes the RAM filesystem.
+fn schedule_ramfs_destruction(
+    mount_path: &std::path::Path,
+    file_path: &std::path::Path,
+    ttl: u64,
+    disk_id: Option<&str>,
+) -> Result<()> {
+    let script = build_destruction_script(mount_path, file_path, ttl, disk_id);
+
+    std::process::Command::new("sh")
+        .args(["-c", &script])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to spawn destruction timer process")?;
+
+    Ok(())
+}
+
+/// Build a platform-appropriate shell script for timed destruction.
+fn build_destruction_script(
+    mount_path: &std::path::Path,
+    file_path: &std::path::Path,
+    ttl: u64,
+    disk_id: Option<&str>,
+) -> String {
+    let file_str = file_path.display();
+    let mount_str = mount_path.display();
+
+    if let Some(disk) = disk_id {
+        // macOS: overwrite file, then detach the entire RAM disk (frees RAM)
+        format!(
+            "sleep {ttl} && \
+             dd if=/dev/zero of='{file_str}' bs=1024 count=64 2>/dev/null; \
+             rm -f '{file_str}' 2>/dev/null; \
+             hdiutil detach '{disk}' -force 2>/dev/null"
+        )
+    } else {
+        // Linux: overwrite file, remove it, remove the /dev/shm directory
+        format!(
+            "sleep {ttl} && \
+             if command -v shred >/dev/null 2>&1; then \
+               shred -u '{file_str}' 2>/dev/null; \
+             else \
+               dd if=/dev/zero of='{file_str}' bs=1024 count=64 2>/dev/null; \
+               rm -f '{file_str}' 2>/dev/null; \
+             fi; \
+             rmdir '{mount_str}' 2>/dev/null"
+        )
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1347,4 +1789,265 @@ fn print_banner() {
     eprintln!("  - Hybrid: classical RSA-4096 + PQ ML-DSA-87 (both must verify)");
     eprintln!("  - Source code embedded encrypted (self-recompilation support)");
     eprintln!();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INSPECT — Show all certificates in a PKI directory
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_inspect(pki_dir: PathBuf) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let certs = read::scan_pki_directory(&pki_dir)?;
+    if certs.is_empty() {
+        eprintln!("No certificates found in {}", pki_dir.display());
+        return Ok(());
+    }
+
+    eprintln!(
+        "\nPKI Directory: {}\nCertificates: {}\n",
+        pki_dir.display(),
+        certs.len()
+    );
+
+    // Header
+    eprintln!(
+        "  {:<20} {:<30} {:<12} {:>10}  STATUS",
+        "NAME", "COMMON NAME", "ALGORITHM", "DAYS LEFT"
+    );
+    eprintln!("  {}", "-".repeat(90));
+
+    for cert in &certs {
+        let days = read::days_until_expiry(cert);
+        let status = read::classify_expiry(cert);
+
+        let (color_start, color_end) = match status {
+            read::ExpiryStatus::Expired => ("\x1b[31m", "\x1b[0m"),
+            read::ExpiryStatus::Critical => ("\x1b[31;1m", "\x1b[0m"),
+            read::ExpiryStatus::Warning => ("\x1b[33m", "\x1b[0m"),
+            read::ExpiryStatus::Notice => ("\x1b[33m", "\x1b[0m"),
+            read::ExpiryStatus::Healthy => ("\x1b[32m", "\x1b[0m"),
+        };
+
+        let ca_marker = if cert.is_ca { " [CA]" } else { "" };
+
+        eprintln!(
+            "  {:<20} {:<30} {:<12} {}{:>10}  {}{}{ca_marker}",
+            truncate(&cert.name, 20),
+            truncate(&cert.subject_cn, 30),
+            cert.algorithm,
+            color_start,
+            days,
+            status.label(),
+            color_end,
+        );
+    }
+
+    // Detailed view
+    eprintln!("\n  Details:\n");
+    for cert in &certs {
+        let days = read::days_until_expiry(cert);
+        eprintln!("  {} ({})", cert.subject_cn, cert.name);
+        eprintln!("    Serial:     {}", cert.serial_hex);
+        eprintln!("    Algorithm:  {}", cert.algorithm);
+        eprintln!("    Issuer:     {}", cert.issuer_cn);
+        eprintln!("    Not Before: {}", cert.not_before);
+        eprintln!("    Not After:  {} ({} days)", cert.not_after, days);
+        eprintln!("    CA:         {}", cert.is_ca);
+        if let Some(pl) = cert.pathlen {
+            eprintln!("    Pathlen:    {pl}");
+        }
+        if !cert.key_usage.is_empty() {
+            eprintln!("    Key Usage:  {}", cert.key_usage.join(", "));
+        }
+        if !cert.extended_key_usage.is_empty() {
+            eprintln!("    EKU:        {}", cert.extended_key_usage.join(", "));
+        }
+        eprintln!("    SHA-256:    {}", cert.fingerprint_sha256);
+        eprintln!(
+            "    Private Key: {}",
+            if cert.has_private_key { "yes" } else { "no" }
+        );
+        eprintln!();
+    }
+
+    Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max - 3])
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHECK-EXPIRY — Warn about certificates nearing expiration
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_check_expiry(pki_dir: PathBuf, days: u32) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let certs = read::scan_pki_directory(&pki_dir)?;
+    let mut expired = Vec::new();
+    let mut expiring = Vec::new();
+
+    for cert in &certs {
+        let remaining = read::days_until_expiry(cert);
+        if remaining < 0 {
+            expired.push((cert, remaining));
+        } else if remaining <= days as i64 {
+            expiring.push((cert, remaining));
+        }
+    }
+
+    if expired.is_empty() && expiring.is_empty() {
+        eprintln!(
+            "All {} certificates are valid for more than {} days.",
+            certs.len(),
+            days
+        );
+        return Ok(());
+    }
+
+    if !expired.is_empty() {
+        eprintln!("\x1b[31mEXPIRED certificates:\x1b[0m\n");
+        for (cert, remaining) in &expired {
+            eprintln!(
+                "  \x1b[31m{}\x1b[0m ({}) - expired {} days ago",
+                cert.subject_cn, cert.name, -remaining
+            );
+        }
+        eprintln!();
+    }
+
+    if !expiring.is_empty() {
+        eprintln!(
+            "\x1b[33mCertificates expiring within {} days:\x1b[0m\n",
+            days
+        );
+        for (cert, remaining) in &expiring {
+            eprintln!(
+                "  \x1b[33m{}\x1b[0m ({}) - {} days remaining",
+                cert.subject_cn, cert.name, remaining
+            );
+        }
+        eprintln!();
+    }
+
+    if !expired.is_empty() {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GENERATE-ICAL — Create calendar reminders for cert expirations
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_generate_ical(pki_dir: PathBuf, output: Option<PathBuf>) -> Result<()> {
+    if !pki_dir.exists() {
+        bail!("PKI directory not found: {}", pki_dir.display());
+    }
+
+    let certs = read::scan_pki_directory(&pki_dir)?;
+    if certs.is_empty() {
+        eprintln!("No certificates found in {}", pki_dir.display());
+        return Ok(());
+    }
+
+    let output_dir = output.unwrap_or_else(|| pki_dir.join("calendars"));
+
+    let cert_data: Vec<(String, String, String, String, ::time::OffsetDateTime)> = certs
+        .iter()
+        .map(|c| {
+            (
+                c.name.clone(),
+                c.subject_cn.clone(),
+                c.serial_hex.clone(),
+                c.algorithm.clone(),
+                c.not_after,
+            )
+        })
+        .collect();
+
+    ical::write_ical_files(&output_dir, &cert_data)?;
+
+    eprintln!(
+        "Generated {} calendar files in {}",
+        cert_data.len() + 1,
+        output_dir.display()
+    );
+    eprintln!(
+        "  Individual: {}",
+        cert_data
+            .iter()
+            .map(|c| format!("{}-expiry.ics", c.0))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    eprintln!("  Combined:   all-certs-expiry.ics");
+    eprintln!("\nImport these into Google Calendar, Outlook, or Apple Calendar");
+    eprintln!("to get reminders at 90, 60, 45, 30, 15, 7, and 1 day(s) before expiry.");
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHANGE-VAULT-PASSWORD — Re-encrypt vault with new master password
+// ═══════════════════════════════════════════════════════════════
+
+fn cmd_change_vault_password(vault_path: PathBuf) -> Result<()> {
+    if !vault_path.exists() {
+        bail!("Vault file not found: {}", vault_path.display());
+    }
+
+    eprintln!("Changing master password for: {}", vault_path.display());
+    eprintln!();
+
+    // Decrypt with old password
+    let mut old_master = rpassword::prompt_password("  Current master password: ")
+        .context("Failed to read current password")?;
+
+    let vault = vault::PassphraseVault::load_encrypted(&vault_path, &old_master)
+        .context("Failed to decrypt vault (wrong password?)")?;
+    old_master.zeroize();
+
+    eprintln!("  Decrypted OK ({} entries)", vault.len());
+
+    // Get new password
+    loop {
+        let mut new_master = rpassword::prompt_password("  New master password (min 20 chars): ")
+            .context("Failed to read new password")?;
+
+        if new_master.len() < 20 {
+            eprintln!("    Password must be at least 20 characters. Try again.");
+            new_master.zeroize();
+            continue;
+        }
+
+        let mut confirm = rpassword::prompt_password("  Confirm new password: ")
+            .context("Failed to read confirmation")?;
+
+        if new_master != confirm {
+            eprintln!("    Passwords don't match. Try again.");
+            new_master.zeroize();
+            confirm.zeroize();
+            continue;
+        }
+
+        confirm.zeroize();
+
+        vault.save_encrypted(&vault_path, &new_master)?;
+        new_master.zeroize();
+
+        eprintln!("\n  Vault password changed successfully.");
+        return Ok(());
+    }
 }

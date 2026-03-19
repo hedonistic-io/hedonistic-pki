@@ -288,6 +288,55 @@ impl PassphraseVault {
         eprintln!("  Transfer these to 1Password, then securely delete the vault file.");
         eprintln!("================================================================");
     }
+
+    /// Write all entries to a plaintext file (for RAM filesystem output).
+    ///
+    /// The file is created with owner-only permissions (0o600 on Unix).
+    /// The in-memory buffer is zeroized after writing.
+    pub fn write_to_file(&self, path: &Path) -> anyhow::Result<()> {
+        use std::io::Write;
+
+        let mut content = String::with_capacity(self.entries.len() * 128);
+
+        content.push_str("================================================================\n");
+        content.push_str(&format!(
+            "  Ceremony Passphrase Vault — {} entries\n",
+            self.entries.len()
+        ));
+        content.push_str("================================================================\n\n");
+
+        for (i, entry) in self.entries.iter().enumerate() {
+            content.push_str(&format!("  {}: {}\n", i + 1, entry.label));
+            content.push_str(&format!("     {}\n\n", entry.passphrase));
+        }
+
+        content.push_str("================================================================\n");
+        content.push_str("  Transfer these to 1Password, then close this file.\n");
+        content.push_str("  This RAM filesystem will self-destruct automatically.\n");
+        content.push_str("================================================================\n");
+
+        // Write with restrictive permissions
+        let mut file = std::fs::File::create(path)
+            .map_err(|e| anyhow::anyhow!("Failed to create passphrases file: {e}"))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| anyhow::anyhow!("Failed to set file permissions: {e}"))?;
+        }
+
+        file.write_all(content.as_bytes())
+            .map_err(|e| anyhow::anyhow!("Failed to write passphrases: {e}"))?;
+
+        file.sync_all()
+            .map_err(|e| anyhow::anyhow!("Failed to sync file: {e}"))?;
+
+        // Zeroize the plaintext buffer
+        content.zeroize();
+
+        Ok(())
+    }
 }
 
 impl Drop for PassphraseVault {
@@ -472,5 +521,55 @@ mod tests {
         let salt2 = [99u8; 32];
         let key4 = derive_key("test-password", &salt2);
         assert_ne!(key1, key4);
+    }
+
+    #[test]
+    fn passphrase_vault_write_to_file() {
+        let dir = std::env::temp_dir().join("hpki-test-vault-write");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("passphrases.txt");
+
+        let mut vault = PassphraseVault::new();
+        vault.add("Root CA", "root-passphrase-abc123");
+        vault.add("Intermediate CA", "intermediate-passphrase-xyz789");
+
+        vault.write_to_file(&path).unwrap();
+
+        // File should exist and contain the passphrases
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Root CA"));
+        assert!(content.contains("root-passphrase-abc123"));
+        assert!(content.contains("Intermediate CA"));
+        assert!(content.contains("intermediate-passphrase-xyz789"));
+        assert!(content.contains("2 entries"));
+
+        // Verify restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::metadata(&path).unwrap().permissions();
+            assert_eq!(perms.mode() & 0o777, 0o600);
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn passphrase_vault_write_to_file_empty() {
+        let dir = std::env::temp_dir().join("hpki-test-vault-write-empty");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("passphrases.txt");
+
+        let vault = PassphraseVault::new();
+        vault.write_to_file(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("0 entries"));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
     }
 }
